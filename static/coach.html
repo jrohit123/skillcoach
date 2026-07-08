@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkillCoach · Coach</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+<div class="wrap">
+  <div class="sidebar">
+    <div class="card nav">
+      <button data-tab="chat" class="active">💬 Chat</button>
+      <button data-tab="clients">👥 My clients</button>
+      <button data-tab="grants">🔑 Skill grants</button>
+      <button data-tab="branding">🎨 My branding</button>
+      <button data-tab="reports">📊 Reports</button>
+    </div>
+    <div id="chatSidebarExtra"></div>
+  </div>
+  <div class="main" id="main"></div>
+</div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/chat.js"></script>
+<script src="/static/js/reports.js"></script>
+<script>
+requireRole("coach");
+renderChrome();
+
+const tabs = {
+  /* ---------------- Chat ---------------- */
+  chat: async () => {
+    el("chatSidebarExtra").innerHTML = CONV_SIDEBAR_HTML;
+    el("main").innerHTML = CHAT_PANEL_HTML;
+    await Chat.init();
+  },
+
+  /* ---------------- Clients ---------------- */
+  clients: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    el("main").innerHTML = `
+      <div class="card">
+        <h2>Add a client <span id="myBal" style="float:right;font-size:13px;color:var(--ink-soft);"></span></h2>
+        <div class="notice" id="clNotice"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 14px;">
+          <div><label>Name</label><input id="clName"></div>
+          <div><label>Email</label><input id="clEmail" type="email"></div>
+          <div><label>Temporary password (min 8)</label><input id="clPass"></div>
+          <div></div>
+        </div>
+        <button class="btn" style="margin-top:14px;" id="clAdd">Create client</button>
+      </div>
+      <div class="card">
+        <h2>My clients</h2>
+        <table><thead><tr>
+          <th>Name</th><th>Email</th><th>Status</th><th>Valid until</th><th>Credits</th><th>Skills</th><th></th>
+        </tr></thead><tbody id="clRows"></tbody></table>
+      </div>`;
+    el("clAdd").onclick = async () => {
+      try {
+        await API.post("/api/coach/clients", {
+          name: el("clName").value, email: el("clEmail").value,
+          password: el("clPass").value,
+        });
+        flash("clNotice", "Client created. Share the email + temporary password with them.", true);
+        loadClients();
+      } catch (e) { flash("clNotice", e.message); }
+    };
+    await loadClients();
+    await showMyBalance();
+  },
+
+  /* ---------------- Grants ---------------- */
+  grants: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    el("main").innerHTML = `
+      <div class="card">
+        <h2>Grant a skill to a client</h2>
+        <div class="notice" id="grNotice"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
+          <div><label>Skill (leased to you)</label><select id="grSkill"></select></div>
+          <div><label>Client</label><select id="grClient"></select></div>
+          <button class="btn" id="grAdd">Grant</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Current grants</h2>
+        <table><thead><tr><th>Skill</th><th>Client</th><th>Status</th><th></th></tr></thead>
+        <tbody id="grRows"></tbody></table>
+      </div>`;
+    const [skills, clients] = await Promise.all([
+      API.get("/api/coach/my-skills"), API.get("/api/coach/clients")]);
+    el("grSkill").innerHTML = skills.map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join("")
+      || `<option value="">No skills leased to you yet</option>`;
+    el("grClient").innerHTML = clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")
+      || `<option value="">No clients yet</option>`;
+    el("grAdd").onclick = async () => {
+      try {
+        await API.post("/api/coach/grants", {
+          skill_id: parseInt(el("grSkill").value),
+          client_id: parseInt(el("grClient").value) });
+        flash("grNotice", "Skill granted.", true);
+        loadGrants();
+      } catch (e) { flash("grNotice", e.message); }
+    };
+    await loadGrants();
+  },
+};
+
+async function loadClients() {
+  const rows = await API.get("/api/coach/clients");
+  el("clRows").innerHTML = rows.map(c => `
+    <tr>
+      <td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td>
+      <td><span class="pill ${c.is_active ? "on" : "off"}">${c.is_active ? "Active" : "Inactive"}</span></td>
+      <td>${fmtDate(c.valid_until)}</td>
+      <td>${(c.token_balance||0).toLocaleString()}</td>
+      <td>${c.granted_skills}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small" onclick="allocateCredits(${c.id}, '${esc(c.name)}')">Credits</button>
+        <button class="btn small ghost" onclick="extendClient(${c.id})">Extend</button>
+        <button class="btn small ${c.is_active ? "danger" : ""}" onclick="toggleClient(${c.id}, ${!c.is_active})">
+          ${c.is_active ? "Deactivate" : "Activate"}</button>
+      </td>
+    </tr>`).join("") || `<tr><td colspan="7">No clients yet — add your first one above.</td></tr>`;
+}
+
+async function loadGrants() {
+  const rows = await API.get("/api/coach/grants");
+  el("grRows").innerHTML = rows.map(g => `
+    <tr>
+      <td>${esc(g.skill)}</td><td>${esc(g.client)}</td>
+      <td><span class="pill ${g.is_active ? "on" : "off"}">${g.is_active ? "Active" : "Revoked"}</span></td>
+      <td>${g.is_active
+        ? `<button class="btn small danger" onclick="revokeGrant(${g.skill_id}, ${g.client_id})">Revoke</button>`
+        : `<button class="btn small ghost" onclick="regrant(${g.skill_id}, ${g.client_id})">Re-grant</button>`}</td>
+    </tr>`).join("") || `<tr><td colspan="4">No grants yet.</td></tr>`;
+}
+
+async function extendClient(id) {
+  const d = prompt("Extend validity by how many days?", "365");
+  if (d === null) return;
+  const days = parseInt(d);
+  if (!days || days < 1) { alert("Enter a positive number of days"); return; }
+  await API.patch(`/api/coach/clients/${id}`, { extend_days: days }); loadClients();
+}
+
+async function showMyBalance() {
+  try {
+    const b = await API.get("/api/coach/my-balance");
+    el("myBal").textContent = `My credit balance: ${b.token_balance.toLocaleString()} tokens`;
+  } catch (e) {}
+}
+
+async function allocateCredits(id, name) {
+  const t = prompt(`Allocate how many token credits to ${name}?\n(Deducted from YOUR balance. Negative to reclaim.)`, "50000");
+  if (t === null) return;
+  const tokens = parseInt(t);
+  if (!tokens) { alert("Enter a non-zero number"); return; }
+  try {
+    const r = await API.post("/api/coach/credits", { client_id: id, tokens });
+    alert(`Done. ${name}: ${r.client_balance.toLocaleString()} tokens. Your balance: ${(r.your_balance ?? 0).toLocaleString()}`);
+    loadClients(); showMyBalance();
+  } catch (e) { alert(e.message); }
+}
+async function toggleClient(id, active) {
+  await API.patch(`/api/coach/clients/${id}`, { is_active: active }); loadClients();
+}
+async function revokeGrant(sid, cid) {
+  await API.del(`/api/coach/grants?skill_id=${sid}&client_id=${cid}`); loadGrants();
+}
+async function regrant(sid, cid) {
+  await API.post("/api/coach/grants", { skill_id: sid, client_id: cid }); loadGrants();
+}
+
+tabs.reports = async () => {
+  el("chatSidebarExtra").innerHTML = "";
+  await Reports.render();
+};
+
+tabs.branding = async () => {
+  el("chatSidebarExtra").innerHTML = "";
+  el("main").innerHTML = `
+    <div class="card">
+      <h2>My branding</h2>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:8px;">
+        Shown in the top bar for you and all your clients.</p>
+      <div class="notice" id="brNotice"></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 14px;">
+        <div><label>Brand name</label><input id="brName"></div>
+        <div><label>Website</label><input id="brSite" placeholder="www.example.com"></div>
+      </div>
+      <label>About / tagline (short)</label><input id="brAbout">
+      <label>Logo (PNG/JPG, under 500KB)</label>
+      <input id="brLogo" type="file" accept="image/*">
+      <div style="margin:12px 0;"><img id="brPreview" style="max-height:60px; display:none;"></div>
+      <button class="btn" id="brSave">Save branding</button>
+    </div>`;
+  let logoData = "";
+  const b = await API.get("/api/coach/branding");
+  el("brName").value = b.brand_name; el("brSite").value = b.brand_website;
+  el("brAbout").value = b.brand_about;
+  if (b.brand_logo) { logoData = b.brand_logo; el("brPreview").src = b.brand_logo; el("brPreview").style.display = "block"; }
+  el("brLogo").onchange = () => {
+    const f = el("brLogo").files[0];
+    if (!f) return;
+    if (f.size > 500 * 1024) { flash("brNotice", "Image too large — keep it under 500KB"); el("brLogo").value = ""; return; }
+    const rd = new FileReader();
+    rd.onload = () => { logoData = rd.result; el("brPreview").src = logoData; el("brPreview").style.display = "block"; };
+    rd.readAsDataURL(f);
+  };
+  el("brSave").onclick = async () => {
+    try {
+      await API.patch("/api/coach/branding", {
+        brand_name: el("brName").value, brand_logo: logoData,
+        brand_about: el("brAbout").value, brand_website: el("brSite").value });
+      flash("brNotice", "Branding saved. It appears for you and your clients on next page load.", true);
+    } catch (e) { flash("brNotice", e.message); }
+  };
+};
+
+document.querySelectorAll(".nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".nav button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  tabs[b.dataset.tab]();
+});
+tabs.chat();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+.env
+venv/
+__pycache__/
+*.pyc
+test.db
+DATABASE_PUBLIC_URL.txt

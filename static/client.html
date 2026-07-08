@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkillCoach · Client</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+<div class="wrap">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main" id="main"></div>
+</div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/chat.js"></script>
+<script>
+requireRole("client");
+renderChrome();
+el("sidebar").innerHTML = CONV_SIDEBAR_HTML + `
+  <div class="card">
+    <h2>My credits</h2>
+    <div id="crHist" style="font-size:12px; color:var(--ink-soft); display:flex; flex-direction:column; gap:6px; max-height:26vh; overflow-y:auto;"></div>
+  </div>`;
+el("main").innerHTML = CHAT_PANEL_HTML;
+Chat.init();
+(async () => {
+  try {
+    const rows = await API.get("/api/reports/credits");
+    el("crHist").innerHTML = rows.length ? `
+      <table style="font-size:12px;">
+        <thead><tr><th>Date</th><th>From</th><th style="text-align:right;">Tokens</th></tr></thead>
+        <tbody>
+          ${rows.slice(0, 20).map(t => `
+            <tr>
+              <td style="padding:6px 8px;">${fmtDate(t.at)}</td>
+              <td style="padding:6px 8px;">${esc(t.from)}</td>
+              <td style="padding:6px 8px; text-align:right; font-weight:700;
+                  color:${t.tokens >= 0 ? "var(--ok)" : "var(--danger)"};">
+                ${t.tokens >= 0 ? "+" : ""}${t.tokens.toLocaleString()}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>` : "No credits received yet.";
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

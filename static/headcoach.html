@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkillCoach · Head Coach</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+<div class="wrap">
+  <div class="sidebar">
+    <div class="card nav">
+      <button data-tab="skills" class="active">🧠 Skills</button>
+      <button data-tab="coaches">🎓 Coaches</button>
+      <button data-tab="assignments">🔗 Assignments</button>
+      <button data-tab="models">🤖 Models</button>
+      <button data-tab="reports">📊 Reports</button>
+      <button data-tab="chat">💬 Chat</button>
+    </div>
+    <div id="chatSidebarExtra"></div>
+  </div>
+  <div class="main" id="main"></div>
+</div>
+
+<div class="modal-bg" id="skillModal">
+  <div class="card modal">
+    <h2 id="smTitle">Skill</h2>
+    <div class="notice" id="smNotice"></div>
+    <label>Title</label><input id="smTitleInput">
+    <label>Description (shown to coaches/clients)</label><input id="smDesc">
+    <label>System prompt (the skill itself — invisible to users)</label>
+    <textarea id="smPrompt" style="min-height:220px;"></textarea>
+    <div style="margin-top:16px; display:flex; gap:10px;">
+      <button class="btn" id="smSave">Save</button>
+      <button class="btn ghost" onclick="el('skillModal').classList.remove('open')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/chat.js"></script>
+<script src="/static/js/reports.js"></script>
+<script>
+requireRole("head_coach");
+renderChrome();
+let editingSkillId = null;
+
+const tabs = {
+  /* ---------------- Skills ---------------- */
+  skills: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    el("main").innerHTML = `
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2 style="margin:0;">Skills</h2>
+          <button class="btn" onclick="openSkillModal()">+ New skill</button>
+        </div>
+        <div class="notice" id="skNotice"></div>
+        <table style="margin-top:14px;"><thead><tr>
+          <th>Title</th><th>Description</th><th>Status</th><th>Coaches</th><th></th>
+        </tr></thead><tbody id="skRows"></tbody></table>
+      </div>`;
+    await loadSkills();
+  },
+
+  /* ---------------- Coaches ---------------- */
+  coaches: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    el("main").innerHTML = `
+      <div class="card">
+        <h2>Add a coach</h2>
+        <div class="notice" id="coNotice"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 14px;">
+          <div><label>Name</label><input id="coName"></div>
+          <div><label>Email</label><input id="coEmail" type="email"></div>
+          <div><label>Temporary password (min 8)</label><input id="coPass"></div>
+          <div><label>Opening credits (tokens)</label><input id="coQuota" type="number" value="0"></div>
+        </div>
+        <button class="btn" style="margin-top:14px;" id="coAdd">Create coach</button>
+      </div>
+      <div class="card">
+        <h2>Coaches</h2>
+        <table><thead><tr>
+          <th>Name</th><th>Email</th><th>Status</th><th>Valid until</th><th>Credits</th>
+          <th>Clients</th><th>Skills</th><th></th>
+        </tr></thead><tbody id="coRows"></tbody></table>
+      </div>`;
+    el("coAdd").onclick = async () => {
+      try {
+        await API.post("/api/admin/coaches", {
+          name: el("coName").value, email: el("coEmail").value,
+          password: el("coPass").value,
+          opening_credits: parseInt(el("coQuota").value) || 0 });
+        flash("coNotice", "Coach created. Share the email + temporary password.", true);
+        loadCoaches();
+      } catch (e) { flash("coNotice", e.message); }
+    };
+    await loadCoaches();
+  },
+
+  /* ---------------- Assignments ---------------- */
+  assignments: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    el("main").innerHTML = `
+      <div class="card">
+        <h2>Lease a skill to a coach</h2>
+        <div class="notice" id="asNotice"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
+          <div><label>Skill</label><select id="asSkill"></select></div>
+          <div><label>Coaches (Ctrl/Cmd-click for several)</label>
+            <select id="asCoach" multiple size="4"></select>
+            <label style="margin-top:6px;"><input type="checkbox" id="asAll" style="width:auto;"> Lease to ALL active coaches</label>
+          </div>
+          <button class="btn" id="asAdd">Assign</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Current assignments</h2>
+        <table><thead><tr><th>Skill</th><th>Coach</th><th>Status</th><th></th></tr></thead>
+        <tbody id="asRows"></tbody></table>
+      </div>`;
+    const [skills, coaches] = await Promise.all([
+      API.get("/api/admin/skills"), API.get("/api/admin/coaches")]);
+    el("asSkill").innerHTML = skills.map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join("");
+    el("asCoach").innerHTML = coaches.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    el("asAdd").onclick = async () => {
+      try {
+        const ids = [...el("asCoach").selectedOptions].map(o => parseInt(o.value));
+        const r = await API.post("/api/admin/assignments", {
+          skill_id: parseInt(el("asSkill").value),
+          coach_ids: ids, all_coaches: el("asAll").checked });
+        flash("asNotice", `Skill leased to: ${r.coaches.join(", ")}`, true);
+        loadAssignments();
+      } catch (e) { flash("asNotice", e.message); }
+    };
+    await loadAssignments();
+  },
+
+  /* ---------------- Models ---------------- */
+  models: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    el("main").innerHTML = `
+      <div class="card">
+        <h2>Add a model</h2>
+        <div class="notice" id="moNotice"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
+          <div><label>Model ID (from Anthropic docs)</label><input id="moId" placeholder="claude-haiku-4-5"></div>
+          <div><label>Display name (shown to users)</label><input id="moName" placeholder="Haiku — fast & economical"></div>
+          <button class="btn" id="moAdd">Add</button>
+        </div>
+        <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">
+          The default model is used when a user doesn't choose. Deactivate deprecated models any time.</p>
+      </div>
+      <div class="card">
+        <h2>Available models</h2>
+        <table><thead><tr><th>Model ID</th><th>Display name</th><th>Default</th><th>Status</th><th></th></tr></thead>
+        <tbody id="moRows"></tbody></table>
+      </div>`;
+    el("moAdd").onclick = async () => {
+      try {
+        await API.post("/api/admin/models", {
+          model_id: el("moId").value, display_name: el("moName").value });
+        flash("moNotice", "Model added.", true); loadModels();
+      } catch (e) { flash("moNotice", e.message); }
+    };
+    await loadModels();
+  },
+
+  /* ---------------- Reports ---------------- */
+  reports: async () => {
+    el("chatSidebarExtra").innerHTML = "";
+    await Reports.render();
+  },
+
+  /* ---------------- Chat ---------------- */
+  chat: async () => {
+    el("chatSidebarExtra").innerHTML = CONV_SIDEBAR_HTML;
+    el("main").innerHTML = CHAT_PANEL_HTML;
+    await Chat.init();
+  },
+};
+
+async function loadSkills() {
+  const rows = await API.get("/api/admin/skills");
+  el("skRows").innerHTML = rows.map(s => `
+    <tr>
+      <td><b>${esc(s.title)}</b></td>
+      <td style="max-width:260px;">${esc(s.description)}</td>
+      <td><span class="pill ${s.is_enabled ? "on" : "off"}">${s.is_enabled ? "Enabled" : "Disabled"}</span></td>
+      <td>${s.assigned_coaches}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small ghost" onclick="openSkillModal(${s.id})">Edit</button>
+        <button class="btn small ${s.is_enabled ? "danger" : ""}"
+          onclick="toggleSkill(${s.id}, ${!s.is_enabled})">${s.is_enabled ? "Disable" : "Enable"}</button>
+      </td>
+    </tr>`).join("") || `<tr><td colspan="5">No skills yet — create your first one.</td></tr>`;
+}
+
+async function openSkillModal(id) {
+  editingSkillId = id || null;
+  el("smTitle").textContent = id ? "Edit skill" : "New skill";
+  el("smTitleInput").value = ""; el("smDesc").value = ""; el("smPrompt").value = "";
+  if (id) {
+    const s = await API.get(`/api/admin/skills/${id}`);
+    el("smTitleInput").value = s.title; el("smDesc").value = s.description;
+    el("smPrompt").value = s.system_prompt;
+  }
+  el("skillModal").classList.add("open");
+}
+
+el("smSave").onclick = async () => {
+  const body = { title: el("smTitleInput").value, description: el("smDesc").value,
+                 system_prompt: el("smPrompt").value };
+  try {
+    if (editingSkillId) await API.patch(`/api/admin/skills/${editingSkillId}`, body);
+    else await API.post("/api/admin/skills", body);
+    el("skillModal").classList.remove("open");
+    loadSkills();
+  } catch (e) { flash("smNotice", e.message); }
+};
+
+async function toggleSkill(id, enabled) {
+  await API.patch(`/api/admin/skills/${id}`, { is_enabled: enabled }); loadSkills();
+}
+
+async function loadCoaches() {
+  const rows = await API.get("/api/admin/coaches");
+  el("coRows").innerHTML = rows.map(c => `
+    <tr>
+      <td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td>
+      <td><span class="pill ${c.is_active ? "on" : "off"}">${c.is_active ? "Active" : "Inactive"}</span></td>
+      <td>${fmtDate(c.valid_until)}</td>
+      <td>${(c.token_balance||0).toLocaleString()}</td>
+      <td>${c.clients}</td><td>${c.skills}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small" onclick="issueCredits(${c.id}, '${esc(c.name)}')">Issue credits</button>
+        <button class="btn small ghost" onclick="extendUser(${c.id})">Extend</button>
+        <button class="btn small ${c.is_active ? "danger" : ""}"
+          onclick="toggleUser(${c.id}, ${!c.is_active})">${c.is_active ? "Deactivate" : "Activate"}</button>
+      </td>
+    </tr>`).join("") || `<tr><td colspan="8">No coaches yet.</td></tr>`;
+}
+
+async function extendUser(id) {
+  const d = prompt("Extend validity by how many days?", "365");
+  if (d === null) return;
+  const days = parseInt(d);
+  if (!days || days < 1) { alert("Enter a positive number of days"); return; }
+  await API.patch(`/api/admin/users/${id}`, { extend_days: days }); loadCoaches();
+}
+
+async function issueCredits(id, name) {
+  const t = prompt(`Issue how many token credits to ${name}?\n(Use a negative number to reclaim.)`, "100000");
+  if (t === null) return;
+  const tokens = parseInt(t);
+  if (!tokens) { alert("Enter a non-zero number"); return; }
+  try {
+    const r = await API.post("/api/admin/credits", { coach_id: id, tokens });
+    alert(`Done. ${name}'s new balance: ${r.new_balance.toLocaleString()} tokens`);
+    loadCoaches();
+  } catch (e) { alert(e.message); }
+}
+async function toggleUser(id, active) {
+  await API.patch(`/api/admin/users/${id}`, { is_active: active }); loadCoaches();
+}
+
+async function loadAssignments() {
+  const rows = await API.get("/api/admin/assignments");
+  el("asRows").innerHTML = rows.map(a => `
+    <tr>
+      <td>${esc(a.skill)}</td><td>${esc(a.coach)}</td>
+      <td><span class="pill ${a.is_active ? "on" : "off"}">${a.is_active ? "Active" : "Revoked"}</span></td>
+      <td>${a.is_active
+        ? `<button class="btn small danger" onclick="revokeAssign(${a.skill_id}, ${a.coach_id})">Revoke</button>`
+        : `<button class="btn small ghost" onclick="reassign(${a.skill_id}, ${a.coach_id})">Re-assign</button>`}</td>
+    </tr>`).join("") || `<tr><td colspan="4">No assignments yet.</td></tr>`;
+}
+
+async function loadModels() {
+  const rows = await API.get("/api/admin/models");
+  el("moRows").innerHTML = rows.map(m => `
+    <tr>
+      <td><code>${esc(m.model_id)}</code></td><td>${esc(m.display_name)}</td>
+      <td>${m.is_default ? "⭐ Default" : `<button class="btn small ghost" onclick="setDefaultModel(${m.id})">Make default</button>`}</td>
+      <td><span class="pill ${m.is_active ? "on" : "off"}">${m.is_active ? "Active" : "Inactive"}</span></td>
+      <td>${m.is_default ? "" : `<button class="btn small ${m.is_active ? "danger" : ""}"
+        onclick="toggleModel(${m.id}, ${!m.is_active})">${m.is_active ? "Deactivate" : "Activate"}</button>`}</td>
+    </tr>`).join("");
+}
+async function setDefaultModel(id) { await API.patch(`/api/admin/models/${id}?is_default=true`); loadModels(); }
+async function toggleModel(id, active) { await API.patch(`/api/admin/models/${id}?is_active=${active}`); loadModels(); }
+
+async function revokeAssign(sid, cid) {
+  await API.del(`/api/admin/assignments?skill_id=${sid}&coach_id=${cid}`); loadAssignments();
+}
+async function reassign(sid, cid) {
+  await API.post("/api/admin/assignments", { skill_id: sid, coach_id: cid }); loadAssignments();
+}
+
+document.querySelectorAll(".nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".nav button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  tabs[b.dataset.tab]();
+});
+tabs.skills();
+</script>
+</body>
+</html>
