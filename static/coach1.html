@@ -121,7 +121,6 @@ async function loadClients() {
       <td style="white-space:nowrap;">
         <button class="btn small" onclick="allocateCredits(${c.id}, '${esc(c.name)}')">Credits</button>
         <button class="btn small ghost" onclick="extendClient(${c.id})">Extend</button>
-        <button class="btn small ghost" onclick="resetPassword(${c.id}, '${esc(c.name)}')">Reset pwd</button>
         <button class="btn small ${c.is_active ? "danger" : ""}" onclick="toggleClient(${c.id}, ${!c.is_active})">
           ${c.is_active ? "Deactivate" : "Activate"}</button>
       </td>
@@ -166,16 +165,6 @@ async function allocateCredits(id, name) {
     loadClients(); showMyBalance();
   } catch (e) { alert(e.message); }
 }
-async function resetPassword(id, name) {
-  const p = prompt(`Set a TEMPORARY password for ${name} (min 8 characters).\nThey will be forced to change it at next login.`);
-  if (p === null) return;
-  if (p.length < 8) { alert("Password must be at least 8 characters"); return; }
-  try {
-    const r = await API.post("/api/coach/reset-password", { user_id: id, new_password: p });
-    alert(r.message + "\nShare the temporary password with them securely.");
-  } catch (e) { alert(e.message); }
-}
-
 async function toggleClient(id, active) {
   await API.patch(`/api/coach/clients/${id}`, { is_active: active }); loadClients();
 }

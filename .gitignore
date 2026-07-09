@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 test.db
 DATABASE_PUBLIC_URL.txt
+*_SETUP.md
+*_Skillset.md

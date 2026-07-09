@@ -108,7 +108,7 @@ async function renderChrome() {
           title="Your timezone (affects how dates are shown)">
           ${TZ_LIST.map(z => `<option value="${z}" ${z === userTZ() ? "selected" : ""}>${z}</option>`).join("")}
         </select>
-        <button class="btn ghost small" onclick="openPasswordModal()">Reset Password</button>
+        <button class="btn ghost small" onclick="openPasswordModal()">Password</button>
         <button class="btn ghost small" onclick="logout()">Log out</button>
       </div>
     </div>`);

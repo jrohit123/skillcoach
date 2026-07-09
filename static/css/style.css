@@ -154,3 +154,27 @@ footer img { height: 22px; vertical-align: middle; }
 
 /* processing state */
 body.busy, body.busy * { cursor: progress !important; }
+
+
+/* ---------- Overflow fixes ---------- */
+
+/* Topbar: allow items to wrap instead of clipping */
+.topbar { flex-wrap: wrap; gap: 8px 16px; }
+.topbar .who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.brand { flex-wrap: wrap; min-width: 0; }
+
+/* Wide tables: scroll inside the card instead of spilling out */
+.card { overflow-x: auto; }
+.card table { min-width: 640px; }
+
+/* Chat card must keep its layout — exclude it from table min-width */
+.chat-box { overflow-x: hidden; }
+
+/* Action buttons: slightly tighter so rows fit more often */
+.btn.small { padding: 5px 9px; font-size: 11px; }
+
+/* At narrow widths, let action cells wrap into two lines */
+@media (max-width: 900px) {
+  td[style*="nowrap"] { white-space: normal !important; }
+  td .btn.small { margin: 2px 0; }
+}

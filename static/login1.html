@@ -20,22 +20,6 @@
       <label>Password</label>
       <input id="password" type="password" autocomplete="current-password">
       <button class="btn" style="width:100%; margin-top:18px;" id="loginBtn">Log in</button>
-      <p style="text-align:center; margin-top:14px; font-size:13px;">
-        <a href="#" id="forgotLink">Forgot password?</a></p>
-    </div>
-
-    <div id="forgotPanel" style="display:none;">
-      <h2 style="font-size:16px; margin-bottom:10px;">Forgot your password?</h2>
-      <p style="font-size:13px; color:var(--ink-soft); line-height:1.6;">
-        Password resets are done by your administrator — no email needed.</p>
-      <ul style="font-size:13px; color:var(--ink-soft); line-height:1.7; margin:10px 0 0 18px;">
-        <li>If you are a <b>Client</b>, contact your <b>Coach</b>.</li>
-        <li>If you are a <b>Coach</b>, contact the <b>Head Coach</b>.</li>
-      </ul>
-      <p style="font-size:13px; color:var(--ink-soft); margin-top:10px;">
-        They will set a temporary password for you. When you log in with it,
-        you'll be asked to choose a new password of your own.</p>
-      <button class="btn ghost" style="width:100%; margin-top:16px;" id="backToLogin">← Back to log in</button>
     </div>
 
     <div id="changeForm" style="display:none;">
@@ -99,16 +83,6 @@ el("changeBtn").onclick = async () => {
     await API.post("/api/auth/change-password", { old_password: tempOldPassword, new_password: p1 });
     goToDashboard(localStorage.getItem("role"));
   } catch (e) { flash("notice", e.message); }
-};
-
-el("forgotLink").onclick = (e) => {
-  e.preventDefault();
-  el("loginForm").style.display = "none";
-  el("forgotPanel").style.display = "block";
-};
-el("backToLogin").onclick = () => {
-  el("forgotPanel").style.display = "none";
-  el("loginForm").style.display = "block";
 };
 
 document.addEventListener("keydown", e => {

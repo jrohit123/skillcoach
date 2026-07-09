@@ -56,6 +56,11 @@ class GrantIn(BaseModel):
     client_id: int
 
 
+class ResetPasswordIn(BaseModel):
+    user_id: int
+    new_password: str   # temporary; user must change on next login
+
+
 # ---------- Helpers ----------
 
 def resolve_coach_id(user: User, requested: Optional[int], db: Session) -> int:
@@ -97,6 +102,28 @@ def my_skills(user: User = Depends(require_coach_or_above),
     return [{"id": s.id, "title": s.title, "description": s.description,
              "is_enabled": s.is_enabled} for _, s in rows]
 
+
+
+# ---------- Password Reset ----------
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordIn,
+                   user: User = Depends(require_coach_or_above),
+                   db: Session = Depends(get_db)):
+    target = db.query(User).get(body.user_id)
+    if not target or target.role == "head_coach":
+        raise HTTPException(404, "User not found")
+    # coaches may only reset their own clients
+    if user.role == "coach":
+        if target.role != "client" or target.coach_id != user.id:
+            raise HTTPException(403, "You can only reset your own clients' passwords")
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Temporary password must be at least 8 characters")
+    target.password_hash = hash_password(body.new_password)
+    target.must_change_password = True
+    db.commit()
+    return {"ok": True, "message": f"Password reset for {target.name}. "
+            "They must change it on next login."}
 
 # ---------- Clients ----------
 
