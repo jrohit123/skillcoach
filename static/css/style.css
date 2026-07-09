@@ -178,3 +178,39 @@ body.busy, body.busy * { cursor: progress !important; }
   td[style*="nowrap"] { white-space: normal !important; }
   td .btn.small { margin: 2px 0; }
 }
+/* ---------- Markdown inside assistant bubbles ---------- */
+.msg.md p { margin: 0 0 10px; } .msg.md p:last-child { margin-bottom: 0; }
+.msg.md h1, .msg.md h2, .msg.md h3 { margin: 12px 0 6px; font-size: 15px; }
+.msg.md ul, .msg.md ol { margin: 6px 0 10px 20px; }
+.msg.md li { margin: 3px 0; }
+.msg.md code { background: rgba(30,36,64,.08); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.msg.md pre { background: #2d2d38; color: #eee; padding: 10px 12px; border-radius: 8px;
+              overflow-x: auto; margin: 8px 0; }
+.msg.md pre code { background: none; padding: 0; color: inherit; }
+.msg.md table { border-collapse: collapse; margin: 8px 0; }
+.msg.md td, .msg.md th { border: 1px solid var(--line); padding: 4px 9px; font-size: 13px; }
+.msg.md blockquote { border-left: 3px solid var(--indigo); margin: 8px 0; padding: 2px 12px; color: var(--ink-soft); }
+.msg.md a { color: inherit; }
+
+/* ---------- Category list ---------- */
+.cat-list { display: flex; flex-direction: column; gap: 4px; }
+.cat-list button {
+  text-align: left; padding: 8px 11px; border: none; border-radius: 8px; background: transparent;
+  font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink-soft); cursor: pointer;
+}
+.cat-list button:hover { background: rgba(79,70,229,.07); color: var(--ink); }
+.cat-list button.active { background: var(--periwinkle); color: var(--indigo); }
+
+/* ---------- Edit button on user messages ---------- */
+.msg.user { position: relative; }
+.msg.user .edit-btn {
+  position: absolute; top: 4px; right: 6px; border: none; background: none;
+  cursor: pointer; font-size: 12px; opacity: 0; transition: opacity .15s;
+}
+.msg.user:hover .edit-btn { opacity: .85; }
+.msg.user.editing textarea { background: rgba(255,255,255,.95); color: var(--ink); }
+
+/* ---------- Superseded messages in report transcripts ---------- */
+.msg.superseded { opacity: .5; border: 1px dashed var(--line); }
+.msg .sup-label { display:block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; opacity: .8; margin-bottom: 4px; }

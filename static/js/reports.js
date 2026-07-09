@@ -164,10 +164,17 @@ const Reports = {
           <p style="font-size:12px;color:var(--ink-soft);margin-bottom:12px;">
             ${esc(t.user)} · ${esc(t.skill)} · ${esc(t.model_id || "")} · ${fmtDateTime(t.created_at)}</p>
           <div class="chat-msgs" style="max-height:52vh;">
-            ${t.messages.map(m => `<div class="msg ${m.role}">${esc(m.content)}</div>`).join("")}
+            ${t.messages.map(m => {
+              const body = m.role === "assistant"
+                ? `<div class="md">${(window.marked && window.DOMPurify)
+                    ? DOMPurify.sanitize(marked.parse(m.content)) : esc(m.content)}</div>`
+                : `<span style="white-space:pre-wrap;">${esc(m.content)}</span>`;
+              const sup = m.superseded ? `<span class="sup-label">Edited away</span>` : "";
+              return `<div class="msg ${m.role}${m.superseded ? " superseded" : ""}">${sup}${body}</div>`;
+            }).join("")}
           </div>
           <div style="margin-top:14px; display:flex; gap:10px;">
-            <button class="btn ghost" onclick="downloadFile('/api/reports/conversations/${t.id}/download','transcript_${t.id}.txt')">⬇ Download .txt</button>
+            <button class="btn ghost" onclick="downloadFile('/api/reports/conversations/${t.id}/download','transcript_${t.id}.html')">⬇ Download HTML</button>
             <button class="btn ghost" onclick="el('trModal').remove()">Close</button>
           </div>
         </div>

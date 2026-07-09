@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from database import get_db, User, Skill, SkillAssignment, ModelOption, CreditTransaction
+from database import (get_db, User, Skill, SkillAssignment, ModelOption,
+                      CreditTransaction, SkillCategory)
 from auth import require_head_coach, hash_password
 from services.quota_service import transfer_credits
 
@@ -20,16 +21,25 @@ router = APIRouter(prefix="/api/admin", tags=["head coach"])
 
 # ---------- Schemas ----------
 
+def ensure_category(db: Session, name: str):
+    """A category typed on a skill is auto-registered in the table."""
+    name = (name or "").strip()[:100]
+    if name and not db.query(SkillCategory).filter(SkillCategory.name == name).first():
+        db.add(SkillCategory(name=name))
+
+
 class SkillIn(BaseModel):
     title: str
     description: str = ""
     system_prompt: str
+    category: str = ""
 
 
 class SkillUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     system_prompt: Optional[str] = None
+    category: Optional[str] = None
     is_enabled: Optional[bool] = None
 
 
@@ -71,8 +81,10 @@ def create_skill(body: SkillIn, hc: User = Depends(require_head_coach),
                  db: Session = Depends(get_db)):
     if not body.title.strip() or not body.system_prompt.strip():
         raise HTTPException(400, "Title and system prompt are required")
+    ensure_category(db, body.category)
     s = Skill(title=body.title.strip(), description=body.description.strip(),
-              system_prompt=body.system_prompt, created_by=hc.id)
+              system_prompt=body.system_prompt,
+              category=body.category.strip()[:100], created_by=hc.id)
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -88,6 +100,7 @@ def list_skills(hc: User = Depends(require_head_coach), db: Session = Depends(ge
             SkillAssignment.skill_id == s.id,
             SkillAssignment.is_active == True).count()  # noqa: E712
         out.append({"id": s.id, "title": s.title, "description": s.description,
+                    "category": s.category or "",
                     "is_enabled": s.is_enabled, "assigned_coaches": coach_count,
                     "created_at": str(s.created_at)})
     return out
@@ -100,7 +113,8 @@ def get_skill(skill_id: int, hc: User = Depends(require_head_coach),
     if not s:
         raise HTTPException(404, "Skill not found")
     return {"id": s.id, "title": s.title, "description": s.description,
-            "system_prompt": s.system_prompt, "is_enabled": s.is_enabled}
+            "system_prompt": s.system_prompt, "category": s.category or "",
+            "is_enabled": s.is_enabled}
 
 
 @router.patch("/skills/{skill_id}")
@@ -115,10 +129,86 @@ def update_skill(skill_id: int, body: SkillUpdate,
         s.description = body.description.strip()
     if body.system_prompt is not None:
         s.system_prompt = body.system_prompt
+    if body.category is not None:
+        ensure_category(db, body.category)
+        s.category = body.category.strip()[:100]
     if body.is_enabled is not None:
         s.is_enabled = body.is_enabled
     db.commit()
     return {"ok": True, "id": s.id, "is_enabled": s.is_enabled}
+
+
+@router.get("/categories")
+def list_categories(hc: User = Depends(require_head_coach),
+                    db: Session = Depends(get_db)):
+    rows = db.query(SkillCategory).order_by(SkillCategory.sort_order,
+                                            SkillCategory.name).all()
+    counts = {}
+    for s in db.query(Skill.category).all():
+        c = (s.category or "").strip()
+        if c:
+            counts[c] = counts.get(c, 0) + 1
+    return [{"id": r.id, "name": r.name, "skills": counts.get(r.name, 0)}
+            for r in rows]
+
+
+class CategoryRenameIn(BaseModel):
+    new_name: str
+
+
+@router.post("/categories/{cat_id}/move")
+def move_category(cat_id: int, direction: str,
+                  hc: User = Depends(require_head_coach),
+                  db: Session = Depends(get_db)):
+    """direction = 'up' | 'down' — swaps sort position with the neighbour."""
+    rows = db.query(SkillCategory).order_by(SkillCategory.sort_order,
+                                            SkillCategory.name).all()
+    # normalise sort_order to clean 0..n first (handles legacy zeros)
+    for i, r in enumerate(rows):
+        r.sort_order = i
+    idx = next((i for i, r in enumerate(rows) if r.id == cat_id), None)
+    if idx is None:
+        raise HTTPException(404, "Category not found")
+    j = idx - 1 if direction == "up" else idx + 1
+    if 0 <= j < len(rows):
+        rows[idx].sort_order, rows[j].sort_order = rows[j].sort_order, rows[idx].sort_order
+    db.commit()
+    return {"ok": True}
+
+
+@router.patch("/categories/{cat_id}")
+def rename_category(cat_id: int, body: CategoryRenameIn,
+                    hc: User = Depends(require_head_coach),
+                    db: Session = Depends(get_db)):
+    cat = db.query(SkillCategory).get(cat_id)
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    new = body.new_name.strip()[:100]
+    if not new:
+        raise HTTPException(400, "New name cannot be empty")
+    clash = db.query(SkillCategory).filter(SkillCategory.name == new,
+                                           SkillCategory.id != cat_id).first()
+    if clash:
+        raise HTTPException(400, "A category with that name already exists")
+    old = cat.name
+    cat.name = new
+    db.query(Skill).filter(Skill.category == old).update({Skill.category: new})
+    db.commit()
+    return {"ok": True, "old": old, "new": new}
+
+
+@router.delete("/categories/{cat_id}")
+def delete_category(cat_id: int, hc: User = Depends(require_head_coach),
+                    db: Session = Depends(get_db)):
+    cat = db.query(SkillCategory).get(cat_id)
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    moved = (db.query(Skill).filter(Skill.category == cat.name)
+             .update({Skill.category: ""}))
+    db.delete(cat)
+    db.commit()
+    return {"ok": True, "message":
+            f"Category deleted. {moved} skill(s) are now uncategorized."}
 
 
 # ---------- Coaches ----------

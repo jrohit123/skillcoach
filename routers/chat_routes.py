@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import (get_db, User, Skill, SkillAssignment, SkillGrant,
-                      Conversation, Message, ModelOption)
+                      Conversation, Message, ModelOption, SkillCategory)
 from auth import get_current_user
 from services.claude_service import call_claude, generate_title, DEFAULT_MODEL
 from services.quota_service import check_credits, record_usage, get_usage
@@ -29,6 +29,10 @@ class SendMessageIn(BaseModel):
 
 class RenameIn(BaseModel):
     title: str
+
+
+class EditMessageIn(BaseModel):
+    content: str
 
 
 # ---------- Access helpers ----------
@@ -97,13 +101,23 @@ def branding(user: User = Depends(get_current_user),
             "brand_about": src.brand_about, "brand_website": src.brand_website}
 
 
+@router.get("/skill-categories")
+def ordered_categories(user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """Ordered category names, for the chat sidebar (all roles)."""
+    rows = db.query(SkillCategory).order_by(SkillCategory.sort_order,
+                                            SkillCategory.name).all()
+    return [r.name for r in rows]
+
+
 # ---------- Available skills ----------
 
 @router.get("/skills")
 def available_skills(user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     skills = db.query(Skill).filter(Skill.is_enabled == True).order_by(Skill.id).all()  # noqa: E712
-    return [{"id": s.id, "title": s.title, "description": s.description}
+    return [{"id": s.id, "title": s.title, "description": s.description,
+             "category": (s.category or "").strip()}
             for s in skills if can_use_skill(user, s, db)]
 
 
@@ -168,7 +182,9 @@ def rename_conversation(conv_id: int, body: RenameIn,
 def get_messages(conv_id: int, user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     conv = get_owned_conversation(user, conv_id, db)
-    msgs = (db.query(Message).filter(Message.conversation_id == conv.id)
+    msgs = (db.query(Message)
+            .filter(Message.conversation_id == conv.id,
+                    Message.superseded == False)  # noqa: E712
             .order_by(Message.id).all())
     return [{"id": m.id, "role": m.role, "content": m.content,
              "created_at": str(m.created_at)} for m in msgs]
@@ -193,7 +209,8 @@ def send_message(conv_id: int, body: SendMessageIn,
 
     history = [{"role": m.role, "content": m.content}
                for m in db.query(Message)
-               .filter(Message.conversation_id == conv.id)
+               .filter(Message.conversation_id == conv.id,
+                       Message.superseded == False)  # noqa: E712
                .order_by(Message.id).all()]
 
     result = call_claude(skill.system_prompt, history, content,
@@ -216,6 +233,61 @@ def send_message(conv_id: int, body: SendMessageIn,
             "input_tokens": result["input_tokens"],
             "output_tokens": result["output_tokens"],
             "conversation_title": conv.title}
+
+
+# ---------- Edit a message (fork: soft-deletes later turns) ----------
+
+@router.patch("/conversations/{conv_id}/messages/{msg_id}")
+def edit_message(conv_id: int, msg_id: int, body: EditMessageIn,
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(400, "Message cannot be empty")
+
+    conv = get_owned_conversation(user, conv_id, db)
+    skill = db.query(Skill).get(conv.skill_id)
+    if not can_use_skill(user, skill, db):
+        raise HTTPException(403, "Access to this skill has been revoked or disabled")
+
+    msg = db.query(Message).filter(Message.id == msg_id,
+                                   Message.conversation_id == conv.id).first()
+    if not msg or msg.role != "user" or msg.superseded:
+        raise HTTPException(404, "Message not found or not editable")
+    if msg.content == AUTO_START:
+        first = (db.query(Message)
+                 .filter(Message.conversation_id == conv.id)
+                 .order_by(Message.id).first())
+        if first and first.id == msg.id:
+            raise HTTPException(400, "The opening message cannot be edited")
+
+    check_credits(db, user)
+
+    # soft-delete the edited message and everything after it
+    (db.query(Message)
+       .filter(Message.conversation_id == conv.id, Message.id >= msg.id)
+       .update({Message.superseded: True}))
+    db.commit()
+
+    # rebuild history from what remains, then re-ask with the edited text
+    history = [{"role": m.role, "content": m.content}
+               for m in db.query(Message)
+               .filter(Message.conversation_id == conv.id,
+                       Message.superseded == False)  # noqa: E712
+               .order_by(Message.id).all()]
+
+    result = call_claude(skill.system_prompt, history, content,
+                         model=conv.model_id)
+
+    db.add(Message(conversation_id=conv.id, role="user", content=content,
+                   input_tokens=result["input_tokens"], output_tokens=0))
+    db.add(Message(conversation_id=conv.id, role="assistant",
+                   content=result["text"], input_tokens=0,
+                   output_tokens=result["output_tokens"]))
+    db.commit()
+    record_usage(db, user, result["input_tokens"] + result["output_tokens"])
+
+    return {"reply": result["text"], "conversation_title": conv.title}
 
 
 # ---------- My usage / balance ----------

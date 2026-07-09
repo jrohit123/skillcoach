@@ -28,6 +28,9 @@
     <h2 id="smTitle">Skill</h2>
     <div class="notice" id="smNotice"></div>
     <label>Title</label><input id="smTitleInput">
+    <label>Category</label>
+    <select id="smCat"></select>
+    <input id="smCatNew" placeholder="Type the new category name" style="display:none; margin-top:6px;">
     <label>Description (shown to coaches/clients)</label><input id="smDesc">
     <label>System prompt (the skill itself — invisible to users)</label>
     <textarea id="smPrompt" style="min-height:220px;"></textarea>
@@ -38,6 +41,36 @@
   </div>
 </div>
 
+<div class="modal-bg" id="catModal">
+  <div class="card modal" style="max-width:520px;">
+    <h2>Manage categories</h2>
+    <p style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">
+      Renaming updates every skill in that category. Deleting keeps the skills —
+      they simply become uncategorized.</p>
+    <div class="notice" id="cmNotice"></div>
+    <table><thead><tr><th>Order</th><th>Category</th><th>Skills</th><th></th></tr></thead>
+    <tbody id="cmRows"></tbody></table>
+    <button class="btn ghost" style="margin-top:14px;"
+      onclick="el('catModal').classList.remove('open')">Close</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<div class="modal-bg" id="catModal">
+  <div class="card modal" style="max-width:520px;">
+    <h2>Manage categories</h2>
+    <p style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">
+      Renaming updates every skill in that category. Deleting keeps the skills —
+      they simply become uncategorized.</p>
+    <div class="notice" id="cmNotice"></div>
+    <table><thead><tr><th>Order</th><th>Category</th><th>Skills</th><th></th></tr></thead>
+    <tbody id="cmRows"></tbody></table>
+    <button class="btn ghost" style="margin-top:14px;"
+      onclick="el('catModal').classList.remove('open')">Close</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/chat.js"></script>
 <script src="/static/js/reports.js"></script>
@@ -54,11 +87,14 @@ const tabs = {
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h2 style="margin:0;">Skills</h2>
-          <button class="btn" onclick="openSkillModal()">+ New skill</button>
+          <div style="display:flex; gap:8px;">
+            <button class="btn ghost" onclick="openCategoryModal()">Manage categories</button>
+            <button class="btn" onclick="openSkillModal()">+ New skill</button>
+          </div>
         </div>
         <div class="notice" id="skNotice"></div>
         <table style="margin-top:14px;"><thead><tr>
-          <th>Title</th><th>Description</th><th>Status</th><th>Coaches</th><th></th>
+          <th>Title</th><th>Category</th><th>Description</th><th>Status</th><th>Coaches</th><th></th>
         </tr></thead><tbody id="skRows"></tbody></table>
       </div>`;
     await loadSkills();
@@ -181,12 +217,61 @@ const tabs = {
   },
 };
 
+async function openCategoryModal() {
+  el("catModal").classList.add("open");
+  await loadCategoryRows();
+}
+
+async function loadCategoryRows() {
+  const rows = await API.get("/api/admin/categories");
+  el("cmRows").innerHTML = rows.map((c, i) => `
+    <tr>
+      <td style="white-space:nowrap;">
+        <button class="btn small ghost" ${i === 0 ? "disabled" : ""}
+          onclick="moveCategory(${c.id}, 'up')">↑</button>
+        <button class="btn small ghost" ${i === rows.length - 1 ? "disabled" : ""}
+          onclick="moveCategory(${c.id}, 'down')">↓</button>
+      </td>
+      <td><b>${esc(c.name)}</b></td>
+      <td>${c.skills}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small ghost" onclick="renameCategory(${c.id}, '${esc(c.name)}')">Rename</button>
+        <button class="btn small danger" onclick="deleteCategory(${c.id}, '${esc(c.name)}', ${c.skills})">Delete</button>
+      </td>
+    </tr>`).join("") || `<tr><td colspan="4">No categories yet.</td></tr>`;
+}
+
+async function moveCategory(id, dir) {
+  await API.post(`/api/admin/categories/${id}/move?direction=${dir}`);
+  loadCategoryRows();
+}
+
+async function renameCategory(id, name) {
+  const n = prompt(`Rename category "${name}" to:`, name);
+  if (n === null || !n.trim() || n.trim() === name) return;
+  try {
+    await API.patch(`/api/admin/categories/${id}`, { new_name: n.trim() });
+    flash("cmNotice", `Renamed "${name}" to "${n.trim()}" — all its skills updated.`, true);
+    loadCategoryRows(); loadSkills();
+  } catch (e) { flash("cmNotice", e.message); }
+}
+
+async function deleteCategory(id, name, count) {
+  if (!confirm(`Delete category "${name}"?\n${count} skill(s) will remain but become uncategorized.`)) return;
+  try {
+    const r = await API.del(`/api/admin/categories/${id}`);
+    flash("cmNotice", r.message, true);
+    loadCategoryRows(); loadSkills();
+  } catch (e) { flash("cmNotice", e.message); }
+}
+
 async function loadSkills() {
   const rows = await API.get("/api/admin/skills");
   el("skRows").innerHTML = rows.map(s => `
     <tr>
       <td><b>${esc(s.title)}</b></td>
-      <td style="max-width:260px;">${esc(s.description)}</td>
+      <td>${esc(s.category) || '<span style="color:var(--ink-soft);">—</span>'}</td>
+      <td style="max-width:220px;">${esc(s.description)}</td>
       <td><span class="pill ${s.is_enabled ? "on" : "off"}">${s.is_enabled ? "Enabled" : "Disabled"}</span></td>
       <td>${s.assigned_coaches}</td>
       <td style="white-space:nowrap;">
@@ -194,24 +279,43 @@ async function loadSkills() {
         <button class="btn small ${s.is_enabled ? "danger" : ""}"
           onclick="toggleSkill(${s.id}, ${!s.is_enabled})">${s.is_enabled ? "Disable" : "Enable"}</button>
       </td>
-    </tr>`).join("") || `<tr><td colspan="5">No skills yet — create your first one.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="6">No skills yet — create your first one.</td></tr>`;
 }
 
 async function openSkillModal(id) {
   editingSkillId = id || null;
   el("smTitle").textContent = id ? "Edit skill" : "New skill";
   el("smTitleInput").value = ""; el("smDesc").value = ""; el("smPrompt").value = "";
+  el("smCatNew").style.display = "none"; el("smCatNew").value = "";
+  let current = "";
+  let skill = null;
   if (id) {
-    const s = await API.get(`/api/admin/skills/${id}`);
-    el("smTitleInput").value = s.title; el("smDesc").value = s.description;
-    el("smPrompt").value = s.system_prompt;
+    skill = await API.get(`/api/admin/skills/${id}`);
+    current = skill.category || "";
+  }
+  const cats = (await API.get("/api/admin/categories")).map(c => c.name);
+  if (current && !cats.includes(current)) cats.push(current);
+  el("smCat").innerHTML =
+    `<option value="">— Uncategorized —</option>` +
+    cats.map(c => `<option value="${esc(c)}" ${c === current ? "selected" : ""}>${esc(c)}</option>`).join("") +
+    `<option value="__new__">➕ New category…</option>`;
+  el("smCat").onchange = () =>
+    el("smCatNew").style.display = el("smCat").value === "__new__" ? "block" : "none";
+  if (skill) {
+    el("smTitleInput").value = skill.title; el("smDesc").value = skill.description;
+    el("smPrompt").value = skill.system_prompt;
   }
   el("skillModal").classList.add("open");
 }
 
 el("smSave").onclick = async () => {
+  let category = el("smCat").value;
+  if (category === "__new__") {
+    category = el("smCatNew").value.trim();
+    if (!category) { flash("smNotice", "Enter a name for the new category"); return; }
+  }
   const body = { title: el("smTitleInput").value, description: el("smDesc").value,
-                 system_prompt: el("smPrompt").value };
+                 system_prompt: el("smPrompt").value, category };
   try {
     if (editingSkillId) await API.patch(`/api/admin/skills/${editingSkillId}`, body);
     else await API.post("/api/admin/skills", body);

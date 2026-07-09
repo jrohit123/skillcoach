@@ -114,6 +114,7 @@ def report_transcript(conv_id: int, user: User = Depends(get_current_user),
             "user": owner.name, "model_id": conv.model_id,
             "created_at": str(conv.created_at),
             "messages": [{"role": m.role, "content": m.content,
+                          "superseded": bool(m.superseded),
                           "tokens": m.input_tokens + m.output_tokens,
                           "at": str(m.created_at)} for m in msgs]}
 
@@ -237,14 +238,49 @@ def export_usage(month: Optional[str] = None,
 @router.get("/conversations/{conv_id}/download")
 def download_transcript(conv_id: int, user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
+    """Formatted HTML transcript. Assistant messages are Markdown-rendered;
+    superseded (edited-away) turns are shown greyed with a label."""
+    import html as htmlmod
+    import markdown as md
+
     t = report_transcript(conv_id, user, db)
-    lines = [f"SkillCoach transcript — {t['title']}",
-             f"User: {t['user']} | Skill: {t['skill']} | Model: {t['model_id']}",
-             f"Started (UTC): {t['created_at']}", "=" * 60, ""]
+
+    blocks = []
     for m in t["messages"]:
-        who = "USER" if m["role"] == "user" else "ASSISTANT"
-        lines += [f"[{who}] {m['at']}", m["content"], "-" * 60, ""]
-    return PlainTextResponse(
-        "\n".join(lines),
-        headers={"Content-Disposition":
-                 f'attachment; filename="transcript_{conv_id}.txt"'})
+        if m["role"] == "assistant":
+            body = md.markdown(m["content"], extensions=["tables", "fenced_code"])
+        else:
+            body = "<p>" + htmlmod.escape(m["content"]).replace("\n", "<br>") + "</p>"
+        cls = m["role"] + (" superseded" if m.get("superseded") else "")
+        label = ("You" if m["role"] == "user" else "Assistant") + \
+                (" · edited away" if m.get("superseded") else "")
+        blocks.append(
+            f'<div class="msg {cls}"><div class="who">{label} · {m["at"][:16]}</div>{body}</div>')
+
+    page = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>{htmlmod.escape(t['title'])}</title>
+<style>
+ body {{ font-family: Arial, Helvetica, sans-serif; max-width: 760px;
+        margin: 30px auto; padding: 0 16px; color: #222; }}
+ h1 {{ font-size: 20px; }} .meta {{ color: #777; font-size: 13px; margin-bottom: 24px; }}
+ .msg {{ border-radius: 10px; padding: 12px 16px; margin: 12px 0; }}
+ .msg.user {{ background: #eef1ff; margin-left: 15%; }}
+ .msg.assistant {{ background: #f5f5f5; margin-right: 15%; }}
+ .msg.superseded {{ opacity: .55; border: 1px dashed #bbb; }}
+ .who {{ font-size: 11px; font-weight: bold; color: #888; margin-bottom: 6px;
+        text-transform: uppercase; letter-spacing: .05em; }}
+ pre {{ background: #2d2d2d; color: #eee; padding: 10px; border-radius: 6px; overflow-x: auto; }}
+ code {{ background: #e8e8e8; padding: 1px 4px; border-radius: 3px; }}
+ pre code {{ background: none; padding: 0; }}
+ table {{ border-collapse: collapse; }} td, th {{ border: 1px solid #ccc; padding: 5px 9px; }}
+</style></head><body>
+<h1>{htmlmod.escape(t['title'])}</h1>
+<div class="meta">User: {htmlmod.escape(t['user'])} · Skill: {htmlmod.escape(t['skill'])}
+ · Model: {htmlmod.escape(t['model_id'] or '')} · Started (UTC): {t['created_at'][:16]}</div>
+{''.join(blocks)}
+</body></html>"""
+
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(page, headers={
+        "Content-Disposition": f'attachment; filename="transcript_{conv_id}.html"'})

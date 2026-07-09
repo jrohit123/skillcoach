@@ -1,16 +1,29 @@
-/* chat.js — shared chat panel. Requires api.js. */
+/* chat.js — shared chat panel: markdown rendering, categories, edit-message.
+   Requires api.js; marked + DOMPurify loaded via CDN in the page. */
+
+function renderMD(text) {
+  if (window.marked && window.DOMPurify)
+    return DOMPurify.sanitize(marked.parse(text ?? ""));
+  return esc(text);  // fallback if CDN blocked
+}
 
 const Chat = {
   convId: null,
+  skills: [],
+  catOrder: [],
+  category: "All",
+  msgCache: [],   // visible messages of the open conversation
 
   async init() {
-    const [skills, models] = await Promise.all([
-      API.get("/api/chat/skills"), API.get("/api/chat/models")]);
-    el("skillSelect").innerHTML = skills.length
-      ? skills.map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join("")
-      : `<option value="">No skills available yet</option>`;
+    const [skills, models, catOrder] = await Promise.all([
+      API.get("/api/chat/skills"), API.get("/api/chat/models"),
+      API.get("/api/chat/skill-categories").catch(() => [])]);
+    Chat.skills = skills;
+    Chat.catOrder = catOrder;
     el("modelSelect").innerHTML = models.map(m =>
       `<option value="${esc(m.model_id)}" ${m.is_default ? "selected" : ""}>${esc(m.display_name)}</option>`).join("");
+    Chat.renderCategories();
+    Chat.applyCategory("All");
     el("chatSend").onclick = () => Chat.send();
     el("chatText").addEventListener("keydown", e => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); Chat.send(); }
@@ -19,6 +32,36 @@ const Chat = {
     await Chat.loadConversations();
     await Chat.loadUsage();
   },
+
+  /* ---------- categories ---------- */
+
+  categoryList() {
+    const present = new Set(Chat.skills.map(s => s.category).filter(c => c));
+    const ordered = Chat.catOrder.filter(c => present.has(c));        // server order
+    const extras = [...present].filter(c => !Chat.catOrder.includes(c)).sort();
+    return ["All", ...ordered, ...extras];  // uncategorized skills appear under "All"
+  },
+
+  renderCategories() {
+    const box = el("catList");
+    if (!box) return;
+    box.innerHTML = Chat.categoryList().map(c =>
+      `<button data-cat="${esc(c)}" class="${c === Chat.category ? "active" : ""}">${esc(c)}</button>`).join("");
+    box.querySelectorAll("button").forEach(b =>
+      b.onclick = () => Chat.applyCategory(b.dataset.cat));
+  },
+
+  applyCategory(cat) {
+    Chat.category = cat;
+    const list = Chat.skills.filter(s =>
+      cat === "All" ? true : s.category === cat);
+    el("skillSelect").innerHTML = list.length
+      ? list.map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join("")
+      : `<option value="">No skills in this category</option>`;
+    Chat.renderCategories();
+  },
+
+  /* ---------- usage / conversations ---------- */
 
   async loadUsage() {
     try {
@@ -53,6 +96,34 @@ const Chat = {
       });
   },
 
+  /* ---------- rendering ---------- */
+
+  msgHTML(m, idx) {
+    if (m.role === "assistant")
+      return `<div class="msg assistant md">${renderMD(m.content)}</div>`;
+    const editable = !(idx === 0 && m.content === "start");
+    return `<div class="msg user" data-mid="${m.id}">
+      <span style="white-space:pre-wrap;">${esc(m.content)}</span>
+      ${editable ? `<button class="edit-btn" title="Edit message"
+        onclick="Chat.startEdit(${m.id})">✏️</button>` : ""}</div>`;
+  },
+
+  drawMessages() {
+    el("chatMsgs").innerHTML = Chat.msgCache
+      .filter((m, i) => !(i === 0 && m.role === "user" && m.content === "start"))
+      .map((m) => Chat.msgHTML(m, Chat.msgCache.indexOf(m))).join("");
+    Chat.scroll();
+  },
+
+  async open(id) {
+    Chat.convId = id;
+    Chat.msgCache = await API.get(`/api/chat/conversations/${id}/messages`);
+    Chat.drawMessages();
+    await Chat.loadConversations();
+  },
+
+  /* ---------- new conversation / send ---------- */
+
   async newConversation() {
     const skillId = parseInt(el("skillSelect").value);
     if (!skillId) { flash("chatNotice", "No skill selected"); return; }
@@ -62,8 +133,7 @@ const Chat = {
       const c = await API.post("/api/chat/conversations",
         { skill_id: skillId, model_id: el("modelSelect").value });
       Chat.convId = c.id;
-      el("chatMsgs").innerHTML = `<div class="msg assistant">${esc(c.greeting)}</div>`;
-      await Chat.loadConversations();
+      await Chat.open(c.id);
       await Chat.loadUsage();
       el("chatText").focus();
     } catch (e) {
@@ -72,30 +142,23 @@ const Chat = {
     } finally { el("newConvBtn").disabled = false; }
   },
 
-  async open(id) {
-    Chat.convId = id;
-    const msgs = await API.get(`/api/chat/conversations/${id}/messages`);
-    el("chatMsgs").innerHTML = msgs
-      .filter((m, i) => !(i === 0 && m.role === "user" && m.content === "start"))
-      .map(m => `<div class="msg ${m.role}">${esc(m.content)}</div>`).join("");
-    Chat.scroll();
-    await Chat.loadConversations();
-  },
-
   async send() {
     const text = el("chatText").value.trim();
     if (!text) return;
     if (!Chat.convId) { flash("chatNotice", "Start a new conversation first."); return; }
 
     el("chatText").value = "";
-    el("chatMsgs").insertAdjacentHTML("beforeend", `<div class="msg user">${esc(text)}</div>`);
+    el("chatMsgs").insertAdjacentHTML("beforeend",
+      `<div class="msg user"><span style="white-space:pre-wrap;">${esc(text)}</span></div>`);
     el("chatMsgs").insertAdjacentHTML("beforeend", `<div class="msg thinking" id="thinking">Thinking…</div>`);
     el("chatSend").disabled = true;
     Chat.scroll();
 
     try {
       const r = await API.post(`/api/chat/conversations/${Chat.convId}/messages`, { content: text });
-      el("thinking").outerHTML = `<div class="msg assistant">${esc(r.reply)}</div>`;
+      el("thinking").remove();
+      Chat.msgCache = await API.get(`/api/chat/conversations/${Chat.convId}/messages`);
+      Chat.drawMessages();
       await Chat.loadConversations();
       await Chat.loadUsage();
     } catch (e) {
@@ -104,6 +167,44 @@ const Chat = {
     } finally {
       el("chatSend").disabled = false;
       Chat.scroll();
+    }
+  },
+
+  /* ---------- edit a message (fork) ---------- */
+
+  startEdit(mid) {
+    const m = Chat.msgCache.find(x => x.id === mid);
+    if (!m) return;
+    const bubble = el("chatMsgs").querySelector(`[data-mid="${mid}"]`);
+    if (!bubble) return;
+    bubble.outerHTML = `
+      <div class="msg user editing" data-mid="${mid}" style="width:78%;">
+        <textarea id="editText" style="min-height:70px;">${esc(m.content)}</textarea>
+        <div style="display:flex; gap:8px; margin-top:8px; justify-content:flex-end;">
+          <button class="btn small ghost" style="border-color:#fff;color:#fff;"
+            onclick="Chat.drawMessages()">Cancel</button>
+          <button class="btn small" style="background:#fff;color:var(--indigo);"
+            onclick="Chat.saveEdit(${mid})">Save & resend</button>
+        </div>
+        <p style="font-size:11px; opacity:.8; margin-top:6px;">
+          Saving discards everything after this message and re-asks from here.</p>
+      </div>`;
+    el("editText").focus();
+  },
+
+  async saveEdit(mid) {
+    const text = el("editText").value.trim();
+    if (!text) { flash("chatNotice", "Message cannot be empty"); return; }
+    el("chatMsgs").insertAdjacentHTML("beforeend", `<div class="msg thinking" id="thinking">Thinking…</div>`);
+    try {
+      await API.patch(`/api/chat/conversations/${Chat.convId}/messages/${mid}`, { content: text });
+      Chat.msgCache = await API.get(`/api/chat/conversations/${Chat.convId}/messages`);
+      Chat.drawMessages();
+      await Chat.loadUsage();
+    } catch (e) {
+      el("thinking") && el("thinking").remove();
+      flash("chatNotice", e.message);
+      Chat.drawMessages();
     }
   },
 
@@ -135,6 +236,10 @@ const CHAT_PANEL_HTML = `
   </div>`;
 
 const CONV_SIDEBAR_HTML = `
+  <div class="card">
+    <h2>Categories</h2>
+    <div class="cat-list" id="catList"></div>
+  </div>
   <div class="card">
     <h2>Conversations</h2>
     <div class="conv-list" id="convList"></div>

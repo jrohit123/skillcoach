@@ -48,6 +48,13 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class SkillCategory(Base):
+    __tablename__ = "skill_categories"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+    sort_order = Column(Integer, default=0)
+
+
 class CreditTransaction(Base):
     __tablename__ = "credit_transactions"
     id = Column(Integer, primary_key=True)
@@ -73,6 +80,7 @@ class Skill(Base):
     title = Column(String(200), nullable=False)
     description = Column(Text, default="")
     system_prompt = Column(Text, nullable=False)
+    category = Column(String(100), default="")
     is_enabled = Column(Boolean, default=True)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -100,6 +108,12 @@ class SkillGrant(Base):  # Coach grants skill -> Client
     __table_args__ = (UniqueConstraint("skill_id", "client_id", name="uq_skill_client"),)
 
 
+class Category(Base):
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True)
@@ -116,6 +130,7 @@ class Message(Base):
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
     role = Column(String(10), nullable=False)  # user | assistant
     content = Column(Text, nullable=False)
+    superseded = Column(Boolean, default=False)   # edited-away turns (soft delete)
     input_tokens = Column(Integer, default=0)
     output_tokens = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -151,6 +166,9 @@ MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS brand_website VARCHAR(300) DEFAULT ''",
     "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS model_id VARCHAR(100) DEFAULT ''",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) DEFAULT 'Asia/Kolkata'",
+    "ALTER TABLE skills ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS superseded BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE skill_categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
     # carry over any previous monthly quota as an opening balance, then drop it
     """DO $$ BEGIN
          IF EXISTS (SELECT 1 FROM information_schema.columns

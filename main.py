@@ -36,6 +36,29 @@ def startup():
     init_db()
     seed_head_coach()
     seed_models()
+    seed_categories()
+    seed_categories()
+
+
+def seed_categories():
+    """Seed default categories once; also adopt any category names already
+    used on skills (from before categories became manageable)."""
+    from database import Category, Skill
+    db = SessionLocal()
+    try:
+        existing = {c.name for c in db.query(Category).all()}
+        defaults = ["Strategy", "Culture", "Operations", "Revenue", "Execution"]
+        used = {s.category.strip() for s in db.query(Skill.category).all()
+                if s.category and s.category.strip()}
+        to_add = ([] if existing else defaults) + sorted(used - existing - set(defaults))
+        if not existing:
+            to_add = defaults + sorted(used - set(defaults))
+        for name in dict.fromkeys(to_add):
+            if name not in existing:
+                db.add(Category(name=name))
+        db.commit()
+    finally:
+        db.close()
 
 
 def seed_models():
@@ -72,6 +95,23 @@ def seed_head_coach():
         db.add(hc)
         db.commit()
         print(f"✅ Head Coach account created: {email}")
+    finally:
+        db.close()
+
+
+def seed_categories():
+    """Seed the 5 default categories once, plus any already used on skills."""
+    from database import SkillCategory, Skill
+    db = SessionLocal()
+    try:
+        if db.query(SkillCategory).count() == 0:
+            used = {(s.category or "").strip() for s in db.query(Skill.category).all()}
+            defaults = ["Strategy", "Culture", "Operations", "Revenue", "Execution"]
+            names = dict.fromkeys(defaults + sorted(used - {""} - set(defaults)))
+            for i, name in enumerate(names):
+                db.add(SkillCategory(name=name, sort_order=i))
+            db.commit()
+            print("✅ Skill categories seeded")
     finally:
         db.close()
 
