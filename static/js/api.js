@@ -108,6 +108,7 @@ async function renderChrome() {
           title="Your timezone (affects how dates are shown)">
           ${TZ_LIST.map(z => `<option value="${z}" ${z === userTZ() ? "selected" : ""}>${z}</option>`).join("")}
         </select>
+        <button class="btn ghost small" onclick="openPasswordModal()">Reset Password</button>
         <button class="btn ghost small" onclick="logout()">Log out</button>
       </div>
     </div>`);
@@ -140,4 +141,36 @@ async function renderChrome() {
       }
     } catch (e) { /* keep default branding */ }
   }
+}
+
+/* Change-password modal (available to every logged-in user) */
+function openPasswordModal() {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal-bg open" id="pwModal" onclick="if(event.target===this) this.remove()">
+      <div class="card modal" style="max-width:420px;">
+        <h2>Change password</h2>
+        <div class="notice" id="pwNotice"></div>
+        <label>Current password</label>
+        <input id="pwOld" type="password" autocomplete="current-password">
+        <label>New password (min 8 characters)</label>
+        <input id="pwNew" type="password" autocomplete="new-password">
+        <label>Confirm new password</label>
+        <input id="pwNew2" type="password" autocomplete="new-password">
+        <div style="margin-top:16px; display:flex; gap:10px;">
+          <button class="btn" onclick="submitPasswordChange()">Change password</button>
+          <button class="btn ghost" onclick="el('pwModal').remove()">Cancel</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function submitPasswordChange() {
+  const oldP = el("pwOld").value, p1 = el("pwNew").value, p2 = el("pwNew2").value;
+  if (p1.length < 8) { flash("pwNotice", "New password must be at least 8 characters"); return; }
+  if (p1 !== p2) { flash("pwNotice", "New passwords do not match"); return; }
+  try {
+    await API.post("/api/auth/change-password", { old_password: oldP, new_password: p1 });
+    flash("pwNotice", "Password changed successfully.", true);
+    setTimeout(() => el("pwModal") && el("pwModal").remove(), 1200);
+  } catch (e) { flash("pwNotice", e.message); }
 }
