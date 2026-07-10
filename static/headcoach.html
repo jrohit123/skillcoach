@@ -128,7 +128,7 @@ const tabs = {
           name: el("coName").value, email: el("coEmail").value,
           password: el("coPass").value,
           opening_credits: parseInt(el("coQuota").value) || 0 });
-        flash("coNotice", "Coach created. Share the email + temporary password.", true);
+        flash("coNotice", "Coach created. Share with them the Temporary password and grant them Skills", true);
         loadCoaches();
       } catch (e) { flash("coNotice", e.message); }
     };

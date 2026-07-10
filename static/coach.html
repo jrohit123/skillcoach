@@ -66,7 +66,7 @@ const tabs = {
           name: el("clName").value, email: el("clEmail").value,
           password: el("clPass").value,
         });
-        flash("clNotice", "Client created. Share the email + temporary password with them.", true);
+        flash("clNotice", "Client created. Share with them the Temporary password, Opening credits and grant them Skills", true);
         loadClients();
       } catch (e) { flash("clNotice", e.message); }
     };
