@@ -158,7 +158,7 @@ async function showMyBalance() {
 }
 
 async function allocateCredits(id, name) {
-  const t = prompt(`Allocate how many token credits to ${name}?\n(Deducted from YOUR balance. Negative to reclaim.)`, "50000");
+  const t = prompt(`Allocate how many token credits to ${name}?\n(Deducted from YOUR balance. Negative to reclaim.)`, "1000000");
   if (t === null) return;
   const tokens = parseInt(t);
   if (!tokens) { alert("Enter a non-zero number"); return; }
