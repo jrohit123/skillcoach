@@ -66,7 +66,7 @@ const tabs = {
           name: el("clName").value, email: el("clEmail").value,
           password: el("clPass").value,
         });
-        flash("clNotice", "Client created. Share the email + temporary password with them.", true);
+        flash("clNotice", "Client created. Share with them the Temporary password, Opening credits and grant them Skills", true);
         loadClients();
       } catch (e) { flash("clNotice", e.message); }
     };
@@ -83,7 +83,12 @@ const tabs = {
         <div class="notice" id="grNotice"></div>
         <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
           <div><label>Skill (leased to you)</label><select id="grSkill"></select></div>
-          <div><label>Client</label><select id="grClient"></select></div>
+          <div><label>Clients (Ctrl/Cmd-click for several)</label>
+            <select id="grClient" multiple size="4"></select>
+            <label style="margin-top:6px;">
+              <input type="checkbox" id="grAll" style="width:auto;"> Grant to ALL my active clients
+            </label>
+          </div>
           <button class="btn" id="grAdd">Grant</button>
         </div>
       </div>
@@ -100,10 +105,11 @@ const tabs = {
       || `<option value="">No clients yet</option>`;
     el("grAdd").onclick = async () => {
       try {
-        await API.post("/api/coach/grants", {
+        const ids = [...el("grClient").selectedOptions].map(o => parseInt(o.value));
+        const r = await API.post("/api/coach/grants", {
           skill_id: parseInt(el("grSkill").value),
-          client_id: parseInt(el("grClient").value) });
-        flash("grNotice", "Skill granted.", true);
+          client_ids: ids, all_clients: el("grAll").checked });
+        flash("grNotice", `Skill granted to: ${r.clients.join(", ")}`, true);
         loadGrants();
       } catch (e) { flash("grNotice", e.message); }
     };
@@ -158,7 +164,7 @@ async function showMyBalance() {
 }
 
 async function allocateCredits(id, name) {
-  const t = prompt(`Allocate how many token credits to ${name}?\n(Deducted from YOUR balance. Negative to reclaim.)`, "50000");
+  const t = prompt(`Allocate how many token credits to ${name}?\n(Deducted from YOUR balance. Negative to reclaim.)`, "1000000");
   if (t === null) return;
   const tokens = parseInt(t);
   if (!tokens) { alert("Enter a non-zero number"); return; }

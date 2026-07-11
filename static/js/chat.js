@@ -119,7 +119,13 @@ const Chat = {
     Chat.convId = id;
     Chat.msgCache = await API.get(`/api/chat/conversations/${id}/messages`);
     Chat.drawMessages();
+    // update download link
+    const dlBtn = el("dlBtn");
+    if (dlBtn) { dlBtn.onclick = () =>
+      downloadFile(`/api/reports/conversations/${id}/download`,
+                   `conversation_${id}.html`); }
     await Chat.loadConversations();
+    if (el("dlBtn")) el("dlBtn").style.display = "inline-block";
   },
 
   /* ---------- new conversation / send ---------- */
@@ -134,6 +140,7 @@ const Chat = {
         { skill_id: skillId, model_id: el("modelSelect").value });
       Chat.convId = c.id;
       await Chat.open(c.id);
+      if (el("dlBtn")) el("dlBtn").style.display = "inline-block";
       await Chat.loadUsage();
       el("chatText").focus();
     } catch (e) {
@@ -228,6 +235,9 @@ const CHAT_PANEL_HTML = `
   </div>
   <div class="card chat-box">
     <div class="notice" id="chatNotice"></div>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:6px; min-height:24px;">
+      <button class="btn ghost small" id="dlBtn" style="display:none;">⬇ Download HTML</button>
+    </div>
     <div class="chat-msgs" id="chatMsgs"></div>
     <div class="chat-input">
       <textarea id="chatText" placeholder="Type your message… (Enter to send, Shift+Enter for a new line)"></textarea>

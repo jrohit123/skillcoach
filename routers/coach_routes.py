@@ -53,7 +53,8 @@ class BrandingIn(BaseModel):
 
 class GrantIn(BaseModel):
     skill_id: int
-    client_id: int
+    client_ids: list[int] = []
+    all_clients: bool = False
 
 
 class ResetPasswordIn(BaseModel):
@@ -234,33 +235,50 @@ def set_branding(body: BrandingIn,
 # ---------- Skill grants (coach -> client) ----------
 
 @router.post("/grants")
+@router.post("/grants")
 def grant_skill(body: GrantIn, user: User = Depends(require_coach_or_above),
                 db: Session = Depends(get_db)):
-    client = get_owned_client(user, body.client_id, db)
     skill = db.query(Skill).get(body.skill_id)
     if not skill:
         raise HTTPException(404, "Skill not found")
 
-    # The client's coach must hold an active lease on this skill
-    # (Head Coach granting still requires the client's coach to have the lease,
-    #  so access rules stay consistent.)
+    # resolve the client list
+    if body.all_clients:
+        q = db.query(User).filter(User.role == "client", User.is_active == True)
+        if user.role == "coach":
+            q = q.filter(User.coach_id == user.id)
+        clients = q.all()
+    else:
+        clients = []
+        for cid in body.client_ids:
+            cl = get_owned_client(user, cid, db)
+            clients.append(cl)
+
+    if not clients:
+        raise HTTPException(404, "No matching clients found")
+
+    # verify the coach lease once (same skill, same coach for all clients)
+    sample = clients[0]
+    coach_id = user.id if user.role == "coach" else sample.coach_id
     lease = db.query(SkillAssignment).filter(
         SkillAssignment.skill_id == skill.id,
-        SkillAssignment.coach_id == client.coach_id,
-        SkillAssignment.is_active == True).first()  # noqa: E712
+        SkillAssignment.coach_id == coach_id,
+        SkillAssignment.is_active == True).first()
     if not lease:
         raise HTTPException(403, "This skill is not leased to the client's coach")
 
-    existing = db.query(SkillGrant).filter(
-        SkillGrant.skill_id == skill.id,
-        SkillGrant.client_id == client.id).first()
-    if existing:
-        existing.is_active = True
-    else:
-        db.add(SkillGrant(skill_id=skill.id, client_id=client.id,
-                          granted_by=user.id))
+    for client in clients:
+        existing = db.query(SkillGrant).filter(
+            SkillGrant.skill_id == skill.id,
+            SkillGrant.client_id == client.id).first()
+        if existing:
+            existing.is_active = True
+        else:
+            db.add(SkillGrant(skill_id=skill.id, client_id=client.id,
+                              granted_by=user.id))
     db.commit()
-    return {"ok": True, "skill": skill.title, "client": client.name}
+    return {"ok": True, "skill": skill.title,
+            "clients": [c.name for c in clients]}
 
 
 @router.delete("/grants")
