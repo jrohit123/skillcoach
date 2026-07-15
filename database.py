@@ -6,8 +6,9 @@ import os
 from datetime import datetime, date, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import (create_engine, Column, Integer, String, Text, Boolean,
-                        Date, DateTime, ForeignKey, UniqueConstraint)
+from sqlalchemy import (
+    create_engine, Column, Integer, String, Text, Boolean, Float,
+    Date, DateTime, ForeignKey, UniqueConstraint)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
@@ -72,6 +73,8 @@ class ModelOption(Base):
     display_name = Column(String(150), nullable=False)
     is_default = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    input_cost_per_mtok = Column(Float, default=1.0)   # USD per 1M input tokens
+    output_cost_per_mtok = Column(Float, default=5.0)  # USD per 1M output tokens
 
 
 class Skill(Base):
@@ -169,6 +172,8 @@ MIGRATIONS = [
     "ALTER TABLE skills ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS superseded BOOLEAN DEFAULT FALSE",
     "ALTER TABLE skill_categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+    "ALTER TABLE model_options ADD COLUMN IF NOT EXISTS input_cost_per_mtok FLOAT DEFAULT 1.0",
+    "ALTER TABLE model_options ADD COLUMN IF NOT EXISTS output_cost_per_mtok FLOAT DEFAULT 5.0",
     # carry over any previous monthly quota as an opening balance, then drop it
     """DO $$ BEGIN
          IF EXISTS (SELECT 1 FROM information_schema.columns

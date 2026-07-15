@@ -12,6 +12,7 @@ from database import (get_db, User, Skill, SkillAssignment, SkillGrant,
 from auth import get_current_user
 from services.claude_service import call_claude, generate_title, DEFAULT_MODEL
 from services.quota_service import check_credits, record_usage, get_usage
+from services.pricing_service import estimate_usd_for_balance
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -297,4 +298,5 @@ def my_usage(user: User = Depends(get_current_user),
              db: Session = Depends(get_db)):
     return {"tokens_used_this_month": get_usage(db, user.id),
             "token_balance": user.token_balance or 0,
-            "unlimited": user.role == "head_coach"}
+            "unlimited": user.role == "head_coach",
+            "estimated_usd": estimate_usd_for_balance(db, user.token_balance or 0)}

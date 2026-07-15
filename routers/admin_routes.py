@@ -7,7 +7,7 @@ Assignments: lease a skill to a coach, revoke it
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,8 @@ from database import (get_db, User, Skill, SkillAssignment, ModelOption,
                       CreditTransaction, SkillCategory)
 from auth import require_head_coach, hash_password
 from services.quota_service import transfer_credits
+from services.pricing_service import estimate_usd_for_balance
+import csv, io
 
 router = APIRouter(prefix="/api/admin", tags=["head coach"])
 
@@ -72,6 +74,8 @@ class ModelIn(BaseModel):
     model_id: str
     display_name: str
     is_default: bool = False
+    input_cost_per_mtok: float = 1.0
+    output_cost_per_mtok: float = 5.0
 
 
 # ---------- Skills ----------
@@ -104,6 +108,46 @@ def list_skills(hc: User = Depends(require_head_coach), db: Session = Depends(ge
                     "is_enabled": s.is_enabled, "assigned_coaches": coach_count,
                     "created_at": str(s.created_at)})
     return out
+
+
+@router.get("/skills/template")
+def skills_template(hc: User = Depends(require_head_coach)):
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["title", "description", "category", "system_prompt"])
+    w.writerow(["Example Skill Title", "One-line description shown to coaches/clients",
+                "Strategy", "You are a coach helping the client with... (the full system prompt)"])
+    from fastapi.responses import StreamingResponse
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="skills_template.csv"'})
+
+
+@router.post("/skills/bulk")
+async def skills_bulk_upload(file: UploadFile = File(...),
+                             hc: User = Depends(require_head_coach),
+                             db: Session = Depends(get_db)):
+    raw = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw))
+    required = {"title", "system_prompt"}
+    if not required.issubset({(h or "").strip() for h in (reader.fieldnames or [])}):
+        raise HTTPException(400, "CSV must have at least 'title' and 'system_prompt' columns")
+
+    created, errors = [], []
+    for i, row in enumerate(reader, start=2):  # row 1 is the header
+        title = (row.get("title") or "").strip()
+        prompt = (row.get("system_prompt") or "").strip()
+        category = (row.get("category") or "").strip()
+        desc = (row.get("description") or "").strip()
+        if not title or not prompt:
+            errors.append(f"Row {i}: title and system_prompt are required — skipped")
+            continue
+        ensure_category(db, category)
+        db.add(Skill(title=title, description=desc, system_prompt=prompt,
+                     category=category[:100], created_by=hc.id))
+        created.append(title)
+    db.commit()
+    return {"ok": True, "created": len(created), "titles": created, "errors": errors}
 
 
 @router.get("/skills/{skill_id}")
@@ -246,6 +290,7 @@ def list_coaches(hc: User = Depends(require_head_coach), db: Session = Depends(g
         out.append({"id": c.id, "name": c.name, "email": c.email,
                     "is_active": c.is_active, "valid_until": str(c.valid_until),
                     "token_balance": c.token_balance or 0,
+                    "estimated_usd": estimate_usd_for_balance(db, c.token_balance or 0),
                     "clients": clients, "skills": skills})
     return out
 
@@ -266,6 +311,63 @@ def update_user(user_id: int, body: UserUpdate,
     db.commit()
     return {"ok": True, "id": u.id, "is_active": u.is_active,
             "valid_until": str(u.valid_until)}
+
+
+@router.get("/coaches/template")
+def coaches_template(hc: User = Depends(require_head_coach)):
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["name", "email", "password", "opening_credits", "validity_days"])
+    w.writerow(["Jane Coach", "jane@example.com", "temp12345", "500000", "365"])
+    from fastapi.responses import StreamingResponse
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="coaches_template.csv"'})
+
+
+@router.post("/coaches/bulk")
+async def coaches_bulk_upload(file: UploadFile = File(...),
+                              hc: User = Depends(require_head_coach),
+                              db: Session = Depends(get_db)):
+    raw = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw))
+    required = {"name", "email", "password"}
+    if not required.issubset({(h or "").strip() for h in (reader.fieldnames or [])}):
+        raise HTTPException(400, "CSV must have at least 'name', 'email' and 'password' columns")
+
+    created, errors = [], []
+    seen_emails = set()
+    for i, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        email = (row.get("email") or "").strip().lower()
+        password = (row.get("password") or "").strip()
+        try:
+            opening_credits = int(float(row.get("opening_credits") or 0))
+        except ValueError:
+            opening_credits = 0
+        try:
+            validity_days = int(float(row.get("validity_days") or 365))
+        except ValueError:
+            validity_days = 365
+
+        if not name or not email or not password:
+            errors.append(f"Row {i}: name, email and password are required — skipped")
+            continue
+        if len(password) < 8:
+            errors.append(f"Row {i} ({email}): password must be at least 8 characters — skipped")
+            continue
+        if email in seen_emails or db.query(User).filter(User.email == email).first():
+            errors.append(f"Row {i} ({email}): email already exists — skipped")
+            continue
+
+        db.add(User(name=name, email=email, password_hash=hash_password(password),
+                    role="coach", token_balance=max(0, opening_credits),
+                    valid_from=date.today(),
+                    valid_until=date.today() + timedelta(days=validity_days)))
+        seen_emails.add(email)
+        created.append(email)
+    db.commit()
+    return {"ok": True, "created": len(created), "emails": created, "errors": errors}
 
 
 # ---------- Skill assignments (lease to coach) ----------
@@ -329,8 +431,28 @@ def credit_history(hc: User = Depends(require_head_coach),
 def list_model_options(hc: User = Depends(require_head_coach),
                        db: Session = Depends(get_db)):
     return [{"id": m.id, "model_id": m.model_id, "display_name": m.display_name,
-             "is_default": m.is_default, "is_active": m.is_active}
+             "is_default": m.is_default, "is_active": m.is_active,
+             "input_cost_per_mtok": m.input_cost_per_mtok,
+             "output_cost_per_mtok": m.output_cost_per_mtok}
             for m in db.query(ModelOption).order_by(ModelOption.id).all()]
+
+
+class ModelCostIn(BaseModel):
+    input_cost_per_mtok: float
+    output_cost_per_mtok: float
+
+
+@router.patch("/models/{mid}/cost")
+def update_model_cost(mid: int, body: ModelCostIn,
+                      hc: User = Depends(require_head_coach),
+                      db: Session = Depends(get_db)):
+    m = db.query(ModelOption).get(mid)
+    if not m:
+        raise HTTPException(404, "Model not found")
+    m.input_cost_per_mtok = body.input_cost_per_mtok
+    m.output_cost_per_mtok = body.output_cost_per_mtok
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/models")
@@ -342,7 +464,9 @@ def add_model(body: ModelIn, hc: User = Depends(require_head_coach),
         db.query(ModelOption).update({ModelOption.is_default: False})
     db.add(ModelOption(model_id=body.model_id.strip(),
                        display_name=body.display_name.strip(),
-                       is_default=body.is_default))
+                       is_default=body.is_default,
+                       input_cost_per_mtok=body.input_cost_per_mtok,
+                       output_cost_per_mtok=body.output_cost_per_mtok))
     db.commit()
     return {"ok": True}
 

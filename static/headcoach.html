@@ -13,7 +13,7 @@
     <div class="card nav">
       <button data-tab="skills" class="active">🧠 Skills</button>
       <button data-tab="coaches">🎓 Coaches</button>
-      <button data-tab="assignments">🔗 Assignments</button>
+      <button data-tab="assignments">🔗 Assign Skills</button>
       <button data-tab="models">🤖 Models</button>
       <button data-tab="reports">📊 Reports</button>
       <button data-tab="chat">💬 Chat</button>
@@ -96,7 +96,10 @@ const tabs = {
         <table style="margin-top:14px;"><thead><tr>
           <th>Title</th><th>Category</th><th>Description</th><th>Status</th><th>Coaches</th><th></th>
         </tr></thead><tbody id="skRows"></tbody></table>
-      </div>`;
+      </div>
+      ${bulkUploadCardHTML("skBulk", "skills")}`;
+    wireBulkUpload("skBulk", "/api/admin/skills/template", "/api/admin/skills/bulk",
+      "skills_template.csv", loadSkills);
     await loadSkills();
   },
 
@@ -121,7 +124,8 @@ const tabs = {
           <th>Name</th><th>Email</th><th>Status</th><th>Valid until</th><th>Credits</th>
           <th>Clients</th><th>Skills</th><th></th>
         </tr></thead><tbody id="coRows"></tbody></table>
-      </div>`;
+      </div>
+      ${bulkUploadCardHTML("coBulk", "coaches")}`;
     el("coAdd").onclick = async () => {
       try {
         await API.post("/api/admin/coaches", {
@@ -132,6 +136,8 @@ const tabs = {
         loadCoaches();
       } catch (e) { flash("coNotice", e.message); }
     };
+    wireBulkUpload("coBulk", "/api/admin/coaches/template", "/api/admin/coaches/bulk",
+      "coaches_template.csv", loadCoaches);
     await loadCoaches();
   },
 
@@ -180,23 +186,29 @@ const tabs = {
       <div class="card">
         <h2>Add a model</h2>
         <div class="notice" id="moNotice"></div>
-        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 14px;">
           <div><label>Model ID (from Anthropic docs)</label><input id="moId" placeholder="claude-haiku-4-5"></div>
           <div><label>Display name (shown to users)</label><input id="moName" placeholder="Haiku — fast & economical"></div>
-          <button class="btn" id="moAdd">Add</button>
+          <div><label>Input cost (USD per 1M tokens)</label><input id="moInCost" type="number" step="0.01" value="1.0"></div>
+          <div><label>Output cost (USD per 1M tokens)</label><input id="moOutCost" type="number" step="0.01" value="5.0"></div>
         </div>
+        <button class="btn" style="margin-top:14px;" id="moAdd">Add</button>
         <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">
-          The default model is used when a user doesn't choose. Deactivate deprecated models any time.</p>
+          The default model is used when a user doesn't choose. Deactivate deprecated models any time.
+          Costs come from Anthropic's pricing page and drive the "≈ $" estimates shown to all users for transparency.</p>
       </div>
       <div class="card">
         <h2>Available models</h2>
-        <table><thead><tr><th>Model ID</th><th>Display name</th><th>Default</th><th>Status</th><th></th></tr></thead>
+        <table><thead><tr><th>Model ID</th><th>Display name</th>
+          <th>$ / 1M in</th><th>$ / 1M out</th><th>Default</th><th>Status</th><th></th></tr></thead>
         <tbody id="moRows"></tbody></table>
       </div>`;
     el("moAdd").onclick = async () => {
       try {
         await API.post("/api/admin/models", {
-          model_id: el("moId").value, display_name: el("moName").value });
+          model_id: el("moId").value, display_name: el("moName").value,
+          input_cost_per_mtok: parseFloat(el("moInCost").value) || 0,
+          output_cost_per_mtok: parseFloat(el("moOutCost").value) || 0 });
         flash("moNotice", "Model added.", true); loadModels();
       } catch (e) { flash("moNotice", e.message); }
     };
@@ -335,7 +347,7 @@ async function loadCoaches() {
       <td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td>
       <td><span class="pill ${c.is_active ? "on" : "off"}">${c.is_active ? "Active" : "Inactive"}</span></td>
       <td>${fmtDate(c.valid_until)}</td>
-      <td>${(c.token_balance||0).toLocaleString()}</td>
+      <td>${(c.token_balance||0).toLocaleString()}${c.estimated_usd != null ? ` <span style="color:var(--ink-soft);font-size:11px;">(≈ $${c.estimated_usd.toFixed(2)})</span>` : ""}</td>
       <td>${c.clients}</td><td>${c.skills}</td>
       <td style="white-space:nowrap;">
         <button class="btn small" onclick="issueCredits(${c.id}, '${esc(c.name)}')">Issue credits</button>
@@ -397,11 +409,30 @@ async function loadModels() {
   el("moRows").innerHTML = rows.map(m => `
     <tr>
       <td><code>${esc(m.model_id)}</code></td><td>${esc(m.display_name)}</td>
+      <td>
+        <input id="in_${m.id}" type="number" step="0.01" value="${m.input_cost_per_mtok}"
+          style="width:70px; padding:4px 6px;">
+      </td>
+      <td>
+        <input id="out_${m.id}" type="number" step="0.01" value="${m.output_cost_per_mtok}"
+          style="width:70px; padding:4px 6px;">
+      </td>
       <td>${m.is_default ? "⭐ Default" : `<button class="btn small ghost" onclick="setDefaultModel(${m.id})">Make default</button>`}</td>
       <td><span class="pill ${m.is_active ? "on" : "off"}">${m.is_active ? "Active" : "Inactive"}</span></td>
-      <td>${m.is_default ? "" : `<button class="btn small ${m.is_active ? "danger" : ""}"
-        onclick="toggleModel(${m.id}, ${!m.is_active})">${m.is_active ? "Deactivate" : "Activate"}</button>`}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small ghost" onclick="saveCost(${m.id})">Save cost</button>
+        ${m.is_default ? "" : `<button class="btn small ${m.is_active ? "danger" : ""}"
+        onclick="toggleModel(${m.id}, ${!m.is_active})">${m.is_active ? "Deactivate" : "Activate"}</button>`}
+      </td>
     </tr>`).join("");
+}
+async function saveCost(id) {
+  try {
+    await API.patch(`/api/admin/models/${id}/cost`, {
+      input_cost_per_mtok: parseFloat(el(`in_${id}`).value) || 0,
+      output_cost_per_mtok: parseFloat(el(`out_${id}`).value) || 0 });
+    flash("moNotice", "Cost updated.", true);
+  } catch (e) { flash("moNotice", e.message); }
 }
 async function setDefaultModel(id) { await API.patch(`/api/admin/models/${id}?is_default=true`); loadModels(); }
 async function toggleModel(id, active) { await API.patch(`/api/admin/models/${id}?is_active=${active}`); loadModels(); }

@@ -14,8 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import (get_db, User, Skill, Conversation, Message,
-                      CreditTransaction, UsageMonthly)
+                      CreditTransaction, UsageMonthly, ModelOption)
 from auth import get_current_user
+from services.pricing_service import exact_usd_for_tokens
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -164,10 +165,31 @@ def report_usage(month: Optional[str] = None,   # "YYYY-MM", default current
     if allowed is not None:
         q = q.filter(UsageMonthly.user_id.in_(allowed))
     rows = q.order_by(UsageMonthly.tokens_used.desc()).all()
+
+    # Exact USD per user for this month: sum each message's actual tokens
+    # at its conversation's actual model rate (not a blended guess).
+    rates = {m.model_id: m for m in db.query(ModelOption).all()}
+    year, mon = month.split("-")
+    start = datetime(int(year), int(mon), 1)
+    end = (datetime(int(year) + (1 if mon == "12" else 0),
+                   1 if mon == "12" else int(mon) + 1, 1))
+    user_ids = [u.id for _, u in rows]
+    usd_by_user = {uid: 0.0 for uid in user_ids}
+    if user_ids:
+        msg_rows = (db.query(Message, Conversation.model_id, Conversation.user_id)
+                    .join(Conversation, Message.conversation_id == Conversation.id)
+                    .filter(Conversation.user_id.in_(user_ids),
+                            Message.created_at >= start, Message.created_at < end)
+                    .all())
+        for m, model_id, uid in msg_rows:
+            usd_by_user[uid] = usd_by_user.get(uid, 0.0) + exact_usd_for_tokens(
+                m.input_tokens or 0, m.output_tokens or 0, rates.get(model_id))
+
     return {"month": month,
             "rows": [{"user": u.name, "role": u.role,
                       "tokens_used": um.tokens_used,
-                      "balance": u.token_balance or 0}
+                      "balance": u.token_balance or 0,
+                      "estimated_usd": round(usd_by_user.get(u.id, 0.0), 4)}
                      for um, u in rows]}
 
 
@@ -230,8 +252,8 @@ def export_usage(month: Optional[str] = None,
                  db: Session = Depends(get_db)):
     r = report_usage(month, user, db)
     return xlsx_response(
-        ["User", "Role", "Tokens used", "Current balance"],
-        [[x["user"], x["role"], x["tokens_used"], x["balance"]] for x in r["rows"]],
+        ["User", "Role", "Tokens used", "Current balance", "Est. USD spent (month)"],
+        [[x["user"], x["role"], x["tokens_used"], x["balance"], x["estimated_usd"]] for x in r["rows"]],
         f"Usage {r['month']}", f"skillcoach_usage_{r['month']}.xlsx")
 
 

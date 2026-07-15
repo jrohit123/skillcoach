@@ -249,12 +249,14 @@ const Reports = {
       <table style="margin-top:14px;"><thead><tr>
         ${Reports.th("User", "user")}${Reports.th("Role", "role")}
         ${Reports.th("Tokens used", "tokens_used")}${Reports.th("Current balance", "balance")}
+        ${Reports.th("Est. USD spent", "estimated_usd")}
       </tr></thead><tbody>
         ${Reports.pageRows().map(u => `
           <tr><td><b>${esc(u.user)}</b></td><td>${u.role.replace("_", " ")}</td>
           <td>${u.tokens_used.toLocaleString()}</td>
-          <td>${u.balance.toLocaleString()}</td></tr>`).join("")
-          || `<tr><td colspan="4">No usage recorded for this month.</td></tr>`}
+          <td>${u.balance.toLocaleString()}</td>
+          <td>$${(u.estimated_usd || 0).toFixed(4)}</td></tr>`).join("")
+          || `<tr><td colspan="5">No usage recorded for this month.</td></tr>`}
       </tbody></table>${Reports.pagerHTML()}`;
   },
 };

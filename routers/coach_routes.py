@@ -12,13 +12,15 @@ Head Coach can do all of the above for any coach's clients
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from database import get_db, User, Skill, SkillAssignment, SkillGrant
 from auth import require_coach_or_above, hash_password
 from services.quota_service import transfer_credits
+from services.pricing_service import estimate_usd_for_balance
+import csv, io
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
 
@@ -126,6 +128,73 @@ def reset_password(body: ResetPasswordIn,
     return {"ok": True, "message": f"Password reset for {target.name}. "
             "They must change it on next login."}
 
+@router.get("/clients/template")
+def clients_template(user: User = Depends(require_coach_or_above)):
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["name", "email", "password", "validity_days"])
+    w.writerow(["John Client", "john@example.com", "temp12345", "365"])
+    from fastapi.responses import StreamingResponse
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="clients_template.csv"'})
+
+
+@router.post("/clients/bulk")
+async def clients_bulk_upload(file: UploadFile = File(...),
+                              user: User = Depends(require_coach_or_above),
+                              db: Session = Depends(get_db)):
+    coach_id = resolve_coach_id(user, None, db) if user.role == "coach" else None
+    raw = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw))
+    required = {"name", "email", "password"}
+    fields = {(h or "").strip() for h in (reader.fieldnames or [])}
+    if not required.issubset(fields):
+        raise HTTPException(400, "CSV must have at least 'name', 'email' and 'password' columns")
+    if user.role == "head_coach" and "coach_email" not in fields:
+        raise HTTPException(400,
+            "Head Coach uploads need a 'coach_email' column to say which coach each client belongs to")
+
+    created, errors = [], []
+    seen_emails = set()
+    for i, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        email = (row.get("email") or "").strip().lower()
+        password = (row.get("password") or "").strip()
+        try:
+            validity_days = int(float(row.get("validity_days") or 365))
+        except ValueError:
+            validity_days = 365
+
+        if not name or not email or not password:
+            errors.append(f"Row {i}: name, email and password are required — skipped")
+            continue
+        if len(password) < 8:
+            errors.append(f"Row {i} ({email}): password must be at least 8 characters — skipped")
+            continue
+        if email in seen_emails or db.query(User).filter(User.email == email).first():
+            errors.append(f"Row {i} ({email}): email already exists — skipped")
+            continue
+
+        row_coach_id = coach_id
+        if user.role == "head_coach":
+            ce = (row.get("coach_email") or "").strip().lower()
+            coach = db.query(User).filter(User.email == ce, User.role == "coach").first()
+            if not coach:
+                errors.append(f"Row {i} ({email}): coach_email '{ce}' not found — skipped")
+                continue
+            row_coach_id = coach.id
+
+        db.add(User(name=name, email=email, password_hash=hash_password(password),
+                    role="client", coach_id=row_coach_id, token_balance=0,
+                    valid_from=date.today(),
+                    valid_until=date.today() + timedelta(days=validity_days)))
+        seen_emails.add(email)
+        created.append(email)
+    db.commit()
+    return {"ok": True, "created": len(created), "emails": created, "errors": errors}
+
+
 # ---------- Clients ----------
 
 @router.post("/clients")
@@ -165,6 +234,7 @@ def list_clients(user: User = Depends(require_coach_or_above),
                     "coach_id": cl.coach_id, "is_active": cl.is_active,
                     "valid_until": str(cl.valid_until),
                     "token_balance": cl.token_balance or 0,
+                    "estimated_usd": estimate_usd_for_balance(db, cl.token_balance or 0),
                     "granted_skills": grants})
     return out
 
@@ -206,7 +276,8 @@ def allocate_credits(body: AllocateIn,
 def my_balance(user: User = Depends(require_coach_or_above),
                db: Session = Depends(get_db)):
     return {"token_balance": user.token_balance or 0,
-            "unlimited": user.role == "head_coach"}
+            "unlimited": user.role == "head_coach",
+            "estimated_usd": estimate_usd_for_balance(db, user.token_balance or 0)}
 
 
 # ---------- Branding ----------

@@ -87,6 +87,49 @@ async function downloadFile(path, filename) {
   } finally { document.body.classList.remove("busy"); }
 }
 
+/* Reusable "bulk upload via CSV" card.
+   templatePath: GET endpoint returning the empty template CSV
+   uploadPath:   POST endpoint (multipart) accepting the filled CSV
+   onDone:       called after a successful upload (e.g. to reload a table) */
+function bulkUploadCardHTML(id, label) {
+  return `
+    <div class="card">
+      <h2>Bulk upload ${esc(label)} (CSV)</h2>
+      <div class="notice" id="${id}Notice"></div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <button class="btn ghost small" id="${id}Template">⬇ Download empty template</button>
+        <input type="file" id="${id}File" accept=".csv" style="max-width:240px;">
+        <button class="btn small" id="${id}Upload">Upload CSV</button>
+      </div>
+      <div id="${id}Result" style="font-size:12px; margin-top:10px;"></div>
+    </div>`;
+}
+
+function wireBulkUpload(id, templatePath, uploadPath, templateFilename, onDone) {
+  el(`${id}Template`).onclick = () => downloadFile(templatePath, templateFilename);
+  el(`${id}Upload`).onclick = async () => {
+    const f = el(`${id}File`).files[0];
+    if (!f) { flash(`${id}Notice`, "Choose a CSV file first"); return; }
+    const form = new FormData();
+    form.append("file", f);
+    document.body.classList.add("busy");
+    try {
+      const res = await fetch(uploadPath, { method: "POST",
+        headers: { Authorization: "Bearer " + API.token() }, body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload failed");
+      flash(`${id}Notice`, `${data.created} row(s) created.`, true);
+      el(`${id}Result`).innerHTML = data.errors.length
+        ? `<b style="color:var(--danger);">${data.errors.length} row(s) skipped:</b><br>` +
+          data.errors.map(e => esc(e)).join("<br>")
+        : "";
+      el(`${id}File`).value = "";
+      if (onDone) onDone();
+    } catch (e) { flash(`${id}Notice`, e.message); }
+    finally { document.body.classList.remove("busy"); }
+  };
+}
+
 function esc(s) {
   const d = document.createElement("div");
   d.textContent = s ?? "";

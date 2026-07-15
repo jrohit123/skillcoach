@@ -68,9 +68,11 @@ def seed_models():
         if db.query(ModelOption).count() == 0:
             db.add(ModelOption(model_id="claude-haiku-4-5",
                                display_name="Haiku — fast & economical",
-                               is_default=True))
+                               is_default=True,
+                               input_cost_per_mtok=1.0, output_cost_per_mtok=5.0))
             db.add(ModelOption(model_id="claude-sonnet-4-6",
-                               display_name="Sonnet — balanced intelligence"))
+                               display_name="Sonnet — balanced intelligence",
+                               input_cost_per_mtok=3.0, output_cost_per_mtok=15.0))
             db.commit()
             print("✅ Default model options seeded")
     finally:

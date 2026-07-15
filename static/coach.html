@@ -59,7 +59,8 @@ const tabs = {
         <table><thead><tr>
           <th>Name</th><th>Email</th><th>Status</th><th>Valid until</th><th>Credits</th><th>Skills</th><th></th>
         </tr></thead><tbody id="clRows"></tbody></table>
-      </div>`;
+      </div>
+      ${bulkUploadCardHTML("clBulk", "clients")}`;
     el("clAdd").onclick = async () => {
       try {
         await API.post("/api/coach/clients", {
@@ -70,6 +71,8 @@ const tabs = {
         loadClients();
       } catch (e) { flash("clNotice", e.message); }
     };
+    wireBulkUpload("clBulk", "/api/coach/clients/template", "/api/coach/clients/bulk",
+      "clients_template.csv", loadClients);
     await loadClients();
     await showMyBalance();
   },
@@ -124,7 +127,7 @@ async function loadClients() {
       <td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td>
       <td><span class="pill ${c.is_active ? "on" : "off"}">${c.is_active ? "Active" : "Inactive"}</span></td>
       <td>${fmtDate(c.valid_until)}</td>
-      <td>${(c.token_balance||0).toLocaleString()}</td>
+      <td>${(c.token_balance||0).toLocaleString()}${c.estimated_usd != null ? ` <span style="color:var(--ink-soft);font-size:11px;">(≈ $${c.estimated_usd.toFixed(2)})</span>` : ""}</td>
       <td>${c.granted_skills}</td>
       <td style="white-space:nowrap;">
         <button class="btn small" onclick="allocateCredits(${c.id}, '${esc(c.name)}')">Credits</button>
@@ -159,7 +162,8 @@ async function extendClient(id) {
 async function showMyBalance() {
   try {
     const b = await API.get("/api/coach/my-balance");
-    el("myBal").textContent = `My credit balance: ${b.token_balance.toLocaleString()} tokens`;
+    const usd = (b.estimated_usd != null) ? ` (≈ $${b.estimated_usd.toFixed(2)} USD)` : "";
+    el("myBal").textContent = `My credit balance: ${b.token_balance.toLocaleString()} tokens${usd}`;
   } catch (e) {}
 }
 

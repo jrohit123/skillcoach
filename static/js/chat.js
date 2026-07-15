@@ -23,7 +23,8 @@ const Chat = {
     el("modelSelect").innerHTML = models.map(m =>
       `<option value="${esc(m.model_id)}" ${m.is_default ? "selected" : ""}>${esc(m.display_name)}</option>`).join("");
     Chat.renderCategories();
-    Chat.applyCategory("All");
+    const firstCat = Chat.categoryList()[0] || "All";
+    Chat.applyCategory(firstCat);
     el("chatSend").onclick = () => Chat.send();
     el("chatText").addEventListener("keydown", e => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); Chat.send(); }
@@ -39,7 +40,7 @@ const Chat = {
     const present = new Set(Chat.skills.map(s => s.category).filter(c => c));
     const ordered = Chat.catOrder.filter(c => present.has(c));        // server order
     const extras = [...present].filter(c => !Chat.catOrder.includes(c)).sort();
-    return ["All", ...ordered, ...extras];  // uncategorized skills appear under "All"
+    return [ ...ordered, ...extras, "All"];  // uncategorized skills appear under "All"
   },
 
   renderCategories() {
@@ -66,9 +67,12 @@ const Chat = {
   async loadUsage() {
     try {
       const u = await API.get("/api/chat/usage");
+      const usd = (u.estimated_usd != null)
+        ? ` <span title="Approximate value — assumes the costliest active AI model, since actual cost depends on which model you pick per chat.">(≈ $${u.estimated_usd.toFixed(2)} USD)</span>`
+        : "";
       el("usageInfo").innerHTML = u.unlimited
         ? "Platform account · unlimited credits"
-        : `Credit balance: <b>${u.token_balance.toLocaleString()}</b> tokens
+        : `Credit balance: <b>${u.token_balance.toLocaleString()}</b> tokens${usd}
            · used this month: ${u.tokens_used_this_month.toLocaleString()}`;
     } catch (e) { /* non-fatal */ }
   },
