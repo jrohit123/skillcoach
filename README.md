@@ -2,7 +2,7 @@
 
 An AI-powered coaching platform that delivers personalized coaching sessions using Claude AI, with comprehensive skill tracking, quota management, and analytics capabilities.
 
-**Version:** 0.6.0 (Phase 6)
+**Version:** 1.0.0 (Phase 1)
 
 ## Overview
 
@@ -74,69 +74,6 @@ skillcoach/
 - PostgreSQL 12+
 - Anthropic API key
 
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd skillcoach
-   ```
-
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment variables**
-   ```bash
-   cp .env.example .env
-   ```
-   
-   Edit `.env` with your configuration:
-   ```env
-   DATABASE_URL=postgresql://user:password@localhost:5432/skillcoach
-   ANTHROPIC_API_KEY=your_api_key_here
-   HEADCOACH_EMAIL=headcoach@example.com
-   HEADCOACH_PASSWORD=secure_password
-   HEADCOACH_NAME=Head Coach
-   ```
-
-5. **Initialize database**
-   ```bash
-   python main.py
-   ```
-
-## Running the Application
-
-### Development
-
-```bash
-uvicorn main:app --reload
-```
-
-The app will be available at `http://127.0.0.1:8000`
-
-- API Documentation: `http://127.0.0.1:8000/docs` (Swagger UI)
-- ReDoc: `http://127.0.0.1:8000/redoc`
-
-### Production
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-### Docker
-
-```bash
-docker build -t skillcoach .
-docker run -p 8000:8000 --env-file .env skillcoach
-```
 
 ## API Endpoints
 
@@ -163,16 +100,6 @@ docker run -p 8000:8000 --env-file .env skillcoach
 - `GET /reports/analytics` - Get analytics and metrics
 - `GET /reports/export` - Export reports
 
-## Database Schema
-
-### Core Tables
-- **users** - User accounts with roles (head_coach, coach, client)
-- **skills** - Coaching skills and their categorization
-- **categories** - Skill categories (Strategy, Culture, Operations, etc.)
-- **chat_sessions** - Coaching chat session history
-- **coaching_reports** - Generated coaching reports
-- **model_options** - AI model configurations and pricing
-- **quotas** - User token quotas and usage
 
 ## Available AI Models
 
@@ -184,62 +111,6 @@ docker run -p 8000:8000 --env-file .env skillcoach
    - Balanced intelligence and speed
    - Input: 3.0/MTok, Output: 15.0/MTok
 
-## Coaching Skillsets
-
-The platform includes structured coaching skillsets based on coaching philosophies:
-
-- **Hiring A Digital Marketing Agency** - Guidance on selecting and managing marketing agencies
-- **Irresistible Offers AI Coaching** - Coaching on creating compelling offers
-
-Each skillset contains 20 guided questions that build towards a personalized coaching report.
-
-## User Roles
-
-### Head Coach
-- Full admin access
-- Manage all coaches and clients
-- View platform analytics
-- Configure system settings
-
-### Coach
-- Manage assigned clients
-- Conduct coaching sessions
-- Track client progress
-- Generate personalized reports
-
-### Client
-- Participate in coaching sessions
-- Track personal progress
-- View coaching reports
-- Manage profile
-
-## Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | Yes |
-| `ANTHROPIC_API_KEY` | Claude API key | Yes |
-| `HEADCOACH_EMAIL` | Initial head coach email | Yes |
-| `HEADCOACH_PASSWORD` | Initial head coach password | Yes |
-| `HEADCOACH_NAME` | Head coach display name | No |
-| `JWT_SECRET_KEY` | JWT signing key | Yes |
-| `JWT_ALGORITHM` | JWT algorithm (default: HS256) | No |
-
-## Development
-
-### Running Tests
-```bash
-pytest
-```
-
-### Code Style
-The project uses standard Python conventions. Format code with:
-```bash
-black .
-```
-
-### Database Migrations
-Database schema is initialized automatically on startup via `init_db()`.
 
 ## Troubleshooting
 
@@ -258,16 +129,9 @@ Database schema is initialized automatically on startup via `init_db()`.
 - Check token hasn't expired
 - Verify user account is active
 
-## Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Test thoroughly
-4. Submit a pull request
-
 ## License
 
-[Add your license information here]
+Made by **aitamate Solutions** (www.aitamate.com) for **Phenom Business Coaching Systems**
 
 ## Support
 
@@ -275,4 +139,4 @@ For issues, questions, or feature requests, please contact the development team.
 
 ---
 
-**Built with ❤️ using FastAPI + Claude AI by aitamate Solutions** (www.aitamate.com)
+**Built with ❤️ using FastAPI + Claude AI**
