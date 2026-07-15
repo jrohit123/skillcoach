@@ -318,7 +318,7 @@ def coaches_template(hc: User = Depends(require_head_coach)):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["name", "email", "password", "opening_credits", "validity_days"])
-    w.writerow(["Jane Coach", "jane@example.com", "temp12345", "500000", "365"])
+    w.writerow(["Jane Coach", "jane@example.com", "temp12345", "1000000", "365"])
     from fastapi.responses import StreamingResponse
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
@@ -357,7 +357,7 @@ async def coaches_bulk_upload(file: UploadFile = File(...),
             errors.append(f"Row {i} ({email}): password must be at least 8 characters — skipped")
             continue
         if email in seen_emails or db.query(User).filter(User.email == email).first():
-            errors.append(f"Row {i} ({email}): email already exists — skipped")
+            errors.append(f"Row {i} ({name}, {email}): email already exists — skipped")
             continue
 
         db.add(User(name=name, email=email, password_hash=hash_password(password),
