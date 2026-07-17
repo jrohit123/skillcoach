@@ -15,10 +15,54 @@ from database import (get_db, User, Skill, SkillAssignment, ModelOption,
                       CreditTransaction, SkillCategory)
 from auth import require_head_coach, hash_password
 from services.quota_service import transfer_credits
-from services.pricing_service import estimate_usd_for_balance
+from services.pricing_service import (estimate_usd_for_balance, get_input_ratio,
+                                      set_input_ratio, model_cost_multiplier)
 import csv, io
 
 router = APIRouter(prefix="/api/admin", tags=["head coach"])
+
+
+# ---------- Pricing settings (global input/output ratio for USD estimates) ----------
+
+class PricingSettingIn(BaseModel):
+    input_ratio: float   # 0..1, e.g. 0.65 = 65% input / 35% output
+
+
+@router.get("/pricing-settings")
+def get_pricing_settings(hc: User = Depends(require_head_coach),
+                         db: Session = Depends(get_db)):
+    return {"input_ratio": get_input_ratio(db)}
+
+
+@router.get("/pricing-settings/calibrate")
+def calibrate_input_ratio(hc: User = Depends(require_head_coach),
+                          db: Session = Depends(get_db)):
+    """Measure the ACTUAL input/output token split from all messages
+    recorded so far, so the assumed ratio can be set from real usage
+    instead of a guess. Does not save anything — returns the measured
+    value for the Head Coach to review and save."""
+    from sqlalchemy import func
+    from database import Message
+    total_in, total_out = (db.query(
+        func.coalesce(func.sum(Message.input_tokens), 0),
+        func.coalesce(func.sum(Message.output_tokens), 0)).one())
+    total = (total_in or 0) + (total_out or 0)
+    if total == 0:
+        return {"measured_input_ratio": None, "total_tokens": 0,
+                "message": "No usage recorded yet — nothing to calibrate from."}
+    return {"measured_input_ratio": round(total_in / total, 4),
+            "total_tokens": total,
+            "input_tokens": int(total_in), "output_tokens": int(total_out)}
+
+
+@router.patch("/pricing-settings")
+def update_pricing_settings(body: PricingSettingIn,
+                            hc: User = Depends(require_head_coach),
+                            db: Session = Depends(get_db)):
+    if not (0 <= body.input_ratio <= 1):
+        raise HTTPException(400, "input_ratio must be between 0 and 1")
+    set_input_ratio(db, body.input_ratio)
+    return {"ok": True, "input_ratio": body.input_ratio}
 
 
 # ---------- Schemas ----------

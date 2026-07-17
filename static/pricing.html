@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkillCoach · How token pricing works</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<style>
+  .price-wrap { max-width: 860px; margin: 30px auto; padding: 0 16px; }
+  .step-num { display:inline-flex; align-items:center; justify-content:center;
+    width:26px; height:26px; border-radius:50%; background:var(--indigo);
+    color:#fff; font-weight:700; font-size:13px; margin-right:10px; flex-shrink:0; }
+  .example-box { background: var(--periwinkle, #eef1ff); border-radius: 10px;
+    padding: 14px 18px; margin-top: 12px; font-size: 14px; }
+  .formula { font-family: monospace; background: rgba(30,36,64,.07);
+    padding: 2px 8px; border-radius: 5px; }
+  .cheapest-tag { background: #d9f2e3; color: #1e7a45; font-size: 11px;
+    font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+</style>
+</head>
+<body>
+<div class="price-wrap">
+  <div class="card">
+    <h1 style="font-size:22px; margin-bottom:4px;">How token pricing works</h1>
+    <p style="color:var(--ink-soft); font-size:13px; margin-bottom:0;">
+      Everything you see here updates live from the platform's current settings —
+      the same numbers used everywhere in SkillCoach.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">1</span>What is a token?</h2>
+    <p style="font-size:14px; line-height:1.7;">
+      AI models read and write text in small pieces called <b>tokens</b> —
+      roughly ¾ of an English word each. "Coaching helps businesses grow" is
+      about 6 tokens. Every message you send and every reply you receive
+      consumes tokens from your credit balance.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">2</span>Input tokens vs output tokens</h2>
+    <p style="font-size:14px; line-height:1.7;">
+      There are two kinds, and they cost different amounts:</p>
+    <p style="font-size:14px; line-height:1.7;">
+      <b>Input tokens</b> (cheaper) — everything the AI has to <i>read</i> before
+      answering: your message, plus the whole conversation so far, plus the
+      coaching skill's instructions. Because the AI re-reads the full history on
+      every turn, long conversations use a lot of input tokens.<br>
+      <b>Output tokens</b> (costlier) — the words the AI <i>writes back</i> to you.</p>
+    <p style="font-size:14px; line-height:1.7;" id="ratioExplain"></p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">3</span>Current model rates</h2>
+    <p style="font-size:13px; color:var(--ink-soft);">
+      Rates are in US dollars per 1 million tokens, straight from Anthropic's
+      (the AI provider's) published pricing. The <b>blended cost</b> combines the
+      input and output rates using the split above — it's the practical
+      "what does 1 million of my credit tokens cost" number.</p>
+    <div id="modelTable"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">4</span>A worked example</h2>
+    <div id="workedExample" class="example-box"></div>
+    <p style="font-size:13px; color:var(--ink-soft); margin-top:12px;">
+      Balance values shown across SkillCoach (the "≈ $" figures) always assume
+      the <b>cheapest</b> model — so your balance is worth <i>at least</i> what's
+      shown. If you chat on a pricier model, the same balance simply runs out
+      sooner; the app shows you a warning whenever you pick one.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">5</span>Where your usage is recorded</h2>
+    <p style="font-size:14px; line-height:1.7;">
+      Every message's exact token usage is stored permanently. Your monthly
+      usage report shows the <b>precise</b> dollar cost of what you actually
+      consumed — real tokens, real models, no estimates. Ask your coach or the
+      Head Coach for your usage report at any time.</p>
+  </div>
+
+  <div style="text-align:center; margin: 20px 0;">
+    <button class="btn ghost" onclick="history.back()">← Back</button>
+  </div>
+</div>
+
+<script src="/static/js/api.js"></script>
+<script>
+if (!API.token()) { window.location.href = "/static/login.html"; }
+
+(async () => {
+  try {
+    const p = await API.get("/api/chat/pricing-info");
+    const inPct = Math.round(p.input_ratio * 100);
+    const outPct = 100 - inPct;
+
+    el("ratioExplain").innerHTML =
+      `On this platform, based on real usage patterns, roughly
+       <b>${inPct}% of tokens are set as Input</b> and <b>${outPct}% are set as the Output usage</b>.
+       This split is set by the platform administrator and is used in all the
+       cost calculations below.`;
+
+    const rows = p.models.map(m => `
+      <tr>
+        <td><b>${esc(m.display_name)}</b><br>
+            <code style="font-size:11px;">${esc(m.model_id)}</code>
+            ${m.cost_multiplier == null ? ' <span class="cheapest-tag">CHEAPEST</span>' : ""}</td>
+        <td>$${m.input_cost_per_mtok.toFixed(2)}</td>
+        <td>$${m.output_cost_per_mtok.toFixed(2)}</td>
+        <td><b>$${m.blended_cost_per_mtok.toFixed(2)}</b><br>
+            <span style="font-size:11px; color:var(--ink-soft);">
+              ${inPct}% × $${m.input_cost_per_mtok.toFixed(2)} + ${outPct}% × $${m.output_cost_per_mtok.toFixed(2)}</span></td>
+        <td>${m.cost_multiplier == null ? "—" : m.cost_multiplier + "× the cheapest"}</td>
+      </tr>`).join("");
+
+    el("modelTable").innerHTML = `
+      <table style="margin-top:10px;"><thead><tr>
+        <th>Model</th><th>Input<br>$ / 1M tokens</th><th>Output<br>$ / 1M tokens</th>
+        <th>Blended cost<br>$ / 1M tokens</th><th>Relative cost</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+
+    // Worked example on the cheapest model with a realistic conversation size
+    const cheapest = p.models.find(m => m.cost_multiplier == null) || p.models[0];
+    if (cheapest) {
+      const convTokens = 30000;
+      const inTok = Math.round(convTokens * p.input_ratio);
+      const outTok = convTokens - inTok;
+      const cost = (inTok / 1e6) * cheapest.input_cost_per_mtok +
+                   (outTok / 1e6) * cheapest.output_cost_per_mtok;
+      el("workedExample").innerHTML = `
+        A typical coaching conversation uses about <b>${convTokens.toLocaleString()}
+        tokens</b> in total. On <b>${esc(cheapest.display_name)}</b> at the
+        ${inPct}/${outPct} split, that's roughly:<br><br>
+        <span class="formula">${inTok.toLocaleString()} input × $${cheapest.input_cost_per_mtok.toFixed(2)}/1M
+          = $${((inTok / 1e6) * cheapest.input_cost_per_mtok).toFixed(3)}</span><br>
+        <span class="formula">${outTok.toLocaleString()} output × $${cheapest.output_cost_per_mtok.toFixed(2)}/1M
+          = $${((outTok / 1e6) * cheapest.output_cost_per_mtok).toFixed(3)}</span><br><br>
+        Total: about <b>$${cost.toFixed(2)}</b> for the whole conversation —
+        and a <b>1,000,000-token</b> credit balance covers roughly
+        <b>${Math.floor(1000000 / convTokens)}</b> conversations of this size
+        (≈ $${(cheapest.blended_cost_per_mtok).toFixed(2)} per million tokens).`;
+    }
+  } catch (e) {
+    el("modelTable").innerHTML = `<p style="color:var(--danger);">Could not load pricing: ${esc(e.message)}</p>`;
+  }
+})();
+</script>
+</body>
+</html>

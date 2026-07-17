@@ -12,7 +12,8 @@ from database import (get_db, User, Skill, SkillAssignment, SkillGrant,
 from auth import get_current_user
 from services.claude_service import call_claude, generate_title, DEFAULT_MODEL
 from services.quota_service import check_credits, record_usage, get_usage
-from services.pricing_service import estimate_usd_for_balance
+from services.pricing_service import (estimate_usd_for_balance, model_cost_multiplier,
+                                      get_input_ratio, blended_rate)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -78,13 +79,36 @@ def resolve_model(db: Session, requested: str) -> str:
 
 # ---------- Models & branding ----------
 
+@router.get("/pricing-info")
+def pricing_info(user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Full pricing transparency for any logged-in user: every active model's
+    input/output rates, the platform's assumed input/output split, and the
+    resulting blended cost per 1M tokens."""
+    ratio = get_input_ratio(db)
+    models = (db.query(ModelOption).filter(ModelOption.is_active == True)  # noqa: E712
+              .order_by(ModelOption.id).all())
+    return {"input_ratio": ratio,
+            "models": [{
+                "model_id": m.model_id,
+                "display_name": m.display_name,
+                "is_default": m.is_default,
+                "input_cost_per_mtok": m.input_cost_per_mtok,
+                "output_cost_per_mtok": m.output_cost_per_mtok,
+                "blended_cost_per_mtok": round(blended_rate(m, ratio), 4),
+                "cost_multiplier": model_cost_multiplier(db, m.model_id),
+            } for m in models]}
+
+
 @router.get("/models")
 def list_models(user: User = Depends(get_current_user),
                 db: Session = Depends(get_db)):
     opts = (db.query(ModelOption).filter(ModelOption.is_active == True)  # noqa: E712
             .order_by(ModelOption.id).all())
     return [{"model_id": o.model_id, "display_name": o.display_name,
-             "is_default": o.is_default} for o in opts]
+             "is_default": o.is_default,
+             "cost_multiplier": model_cost_multiplier(db, o.model_id)}
+            for o in opts]
 
 
 @router.get("/branding")

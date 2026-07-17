@@ -66,6 +66,15 @@ class CreditTransaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PlatformSetting(Base):
+    """Single-row key/value store for global settings (e.g. the assumed
+    input/output token ratio used for balance-value estimates)."""
+    __tablename__ = "platform_settings"
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(String(200), nullable=False)
+
+
 class ModelOption(Base):
     __tablename__ = "model_options"
     id = Column(Integer, primary_key=True)

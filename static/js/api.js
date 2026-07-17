@@ -16,7 +16,14 @@ const API = {
     });
     if (res.status === 401) { logout(); return; }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || ("Error " + res.status));
+    if (!res.ok) {
+      let msg = data.detail || ("Error " + res.status);
+      if (Array.isArray(msg)) {
+        // FastAPI validation errors: [{loc:[...], msg:"...", type:"..."}]
+        msg = msg.map(e => `${(e.loc || []).slice(-1)[0]}: ${e.msg}`).join("; ");
+      }
+      throw new Error(msg);
+    }
     return data;
     } finally { document.body.classList.remove("busy"); }
   },

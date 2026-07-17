@@ -184,6 +184,22 @@ const tabs = {
     el("chatSidebarExtra").innerHTML = "";
     el("main").innerHTML = `
       <div class="card">
+        <h2>Usage estimate settings</h2>
+        <div class="notice" id="prNotice"></div>
+        <p style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">
+          SkillCoach resends the full conversation history each turn, so usage tends to be
+          input-heavy. This split is used to estimate the USD value of every token balance
+          shown across the app (using the cheapest active model as the baseline).</p>
+        <div style="display:flex; gap:14px; align-items:end;">
+          <div><label>Assumed input token share (%)</label>
+            <input id="prRatio" type="number" min="0" max="100" step="1" style="width:110px;"></div>
+          <button class="btn" id="prSave">Save</button>
+          <button class="btn ghost" id="prCalibrate"
+            title="Measure the real input/output split from all recorded usage and fill it in below — review, then Save.">Calibrate</button>
+        </div>
+        <div id="prCalInfo" style="font-size:12px; color:var(--ink-soft); margin-top:8px;"></div>
+      </div>
+      <div class="card">
         <h2>Add a model</h2>
         <div class="notice" id="moNotice"></div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 14px;">
@@ -195,7 +211,9 @@ const tabs = {
         <button class="btn" style="margin-top:14px;" id="moAdd">Add</button>
         <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">
           The default model is used when a user doesn't choose. Deactivate deprecated models any time.
-          Costs come from Anthropic's pricing page and drive the "≈ $" estimates shown to all users for transparency.</p>
+          Costs come from Anthropic's pricing page and drive the "≈ $" estimates shown to all users for transparency.
+          Balance estimates always use the <b>cheapest active model</b>; users see a warning inline when they
+          pick a pricier one.</p>
       </div>
       <div class="card">
         <h2>Available models</h2>
@@ -203,6 +221,30 @@ const tabs = {
           <th>$ / 1M in</th><th>$ / 1M out</th><th>Default</th><th>Status</th><th></th></tr></thead>
         <tbody id="moRows"></tbody></table>
       </div>`;
+    const pr = await API.get("/api/admin/pricing-settings");
+    el("prRatio").value = Math.round(pr.input_ratio * 100);
+    el("prSave").onclick = async () => {
+      try {
+        const pct = parseFloat(el("prRatio").value);
+        await API.patch("/api/admin/pricing-settings", { input_ratio: pct / 100 });
+        flash("prNotice", "Saved. USD estimates across the app now use this split.", true);
+      } catch (e) { flash("prNotice", e.message); }
+    };
+    el("prCalibrate").onclick = async () => {
+      try {
+        const r = await API.get("/api/admin/pricing-settings/calibrate");
+        if (r.measured_input_ratio == null) {
+          flash("prNotice", r.message || "No usage recorded yet — nothing to calibrate from.");
+          return;
+        }
+        el("prRatio").value = Math.round(r.measured_input_ratio * 100);
+        el("prCalInfo").innerHTML =
+          `Measured from <b>${r.total_tokens.toLocaleString()}</b> tokens of real usage
+           (${r.input_tokens.toLocaleString()} input / ${r.output_tokens.toLocaleString()} output
+           = <b>${(r.measured_input_ratio * 100).toFixed(1)}%</b> input).
+           Review the value above, adjust if you like, then click Save.`;
+      } catch (e) { flash("prNotice", e.message); }
+    };
     el("moAdd").onclick = async () => {
       try {
         await API.post("/api/admin/models", {
@@ -368,7 +410,7 @@ async function extendUser(id) {
 }
 
 async function issueCredits(id, name) {
-  const t = prompt(`Issue how many token credits to ${name}?\n(Use a negative number to reclaim.)`, "100000");
+  const t = prompt(`Issue how many token credits to ${name}?\n(Use a negative number to reclaim.)`, "1000000");
   if (t === null) return;
   const tokens = parseInt(t);
   if (!tokens) { alert("Enter a non-zero number"); return; }

@@ -20,8 +20,11 @@ const Chat = {
       API.get("/api/chat/skill-categories").catch(() => [])]);
     Chat.skills = skills;
     Chat.catOrder = catOrder;
+    Chat.models = models;
     el("modelSelect").innerHTML = models.map(m =>
       `<option value="${esc(m.model_id)}" ${m.is_default ? "selected" : ""}>${esc(m.display_name)}</option>`).join("");
+    el("modelSelect").onchange = () => Chat.showModelCostNote();
+    Chat.showModelCostNote();
     Chat.renderCategories();
     const firstCat = Chat.categoryList()[0] || "All";
     Chat.applyCategory(firstCat);
@@ -70,10 +73,11 @@ const Chat = {
       const usd = (u.estimated_usd != null)
         ? ` <span title="Approximate value — assumes the costliest active AI model, since actual cost depends on which model you pick per chat.">(≈ $${u.estimated_usd.toFixed(2)} USD)</span>`
         : "";
-      el("usageInfo").innerHTML = u.unlimited
+      el("usageInfo").innerHTML = (u.unlimited
         ? "Platform account · unlimited credits"
         : `Credit balance: <b>${u.token_balance.toLocaleString()}</b> tokens${usd}
-           · used this month: ${u.tokens_used_this_month.toLocaleString()}`;
+           · used this month: ${u.tokens_used_this_month.toLocaleString()}`) +
+        ` · <a href="/static/pricing.html" style="color:var(--indigo);">How pricing works</a>`;
     } catch (e) { /* non-fatal */ }
   },
 
@@ -220,6 +224,20 @@ const Chat = {
   },
 
   scroll() { const m = el("chatMsgs"); m.scrollTop = m.scrollHeight; },
+
+  showModelCostNote() {
+    const note = el("modelCostNote");
+    if (!note) return;
+    const sel = el("modelSelect").value;
+    const m = (Chat.models || []).find(x => x.model_id === sel);
+    if (m && m.cost_multiplier) {
+      note.innerHTML = `⚠️ This model costs about <b>${m.cost_multiplier}×</b> more than the
+        cheapest available option — your credit balance will be consumed faster.`;
+      note.style.color = "var(--danger, #c0392b)";
+    } else {
+      note.innerHTML = "";
+    }
+  },
 };
 
 const CHAT_PANEL_HTML = `
@@ -235,6 +253,7 @@ const CHAT_PANEL_HTML = `
       </div>
       <button class="btn" id="newConvBtn">New conversation</button>
     </div>
+    <div id="modelCostNote" style="font-size:12px;margin-top:6px;"></div>
     <div style="font-size:12px;color:var(--ink-soft);margin-top:10px;" id="usageInfo"></div>
   </div>
   <div class="card chat-box">
