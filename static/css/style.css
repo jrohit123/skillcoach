@@ -167,6 +167,15 @@ body.busy, body.busy * { cursor: progress !important; }
 .card { overflow-x: auto; }
 .card table { min-width: 640px; }
 
+/* On mobile, make it obvious a wide table can be swiped — default mobile
+   scrollbars are invisible until touched, which reads as "cut off". */
+@media (max-width: 640px) {
+  .card { -webkit-overflow-scrolling: touch; }
+  .card::-webkit-scrollbar { height: 6px; }
+  .card::-webkit-scrollbar-thumb { background: var(--indigo); border-radius: 4px; opacity: .5; }
+  .card table { position: relative; }
+}
+
 /* Chat card must keep its layout — exclude it from table min-width */
 .chat-box { overflow-x: hidden; }
 
@@ -177,6 +186,16 @@ body.busy, body.busy * { cursor: progress !important; }
 @media (max-width: 900px) {
   td[style*="nowrap"] { white-space: normal !important; }
   td .btn.small { margin: 2px 0; }
+}
+
+/* Safety net: any card header row using inline flex + space-between
+   (title next to action buttons) wraps instead of overlapping on
+   narrow screens, even if a future addition forgets flex-wrap inline. */
+@media (max-width: 640px) {
+  .card > div[style*="justify-content:space-between"] {
+    flex-wrap: wrap !important;
+    row-gap: 10px;
+  }
 }
 /* ---------- Markdown inside assistant bubbles ---------- */
 .msg.md p { margin: 0 0 10px; } .msg.md p:last-child { margin-bottom: 0; }
