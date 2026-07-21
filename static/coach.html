@@ -82,10 +82,13 @@ const tabs = {
     el("chatSidebarExtra").innerHTML = "";
     el("main").innerHTML = `
       <div class="card">
-        <h2>Grant a skill to a client</h2>
+        <h2>Grant skills to clients</h2>
         <div class="notice" id="grNotice"></div>
         <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
-          <div><label>Skill (leased to you)</label><select id="grSkill"></select></div>
+          <div><label>Skills (Ctrl/Cmd-click for several — only shows skills leased to you)</label>
+            <select id="grSkill" multiple size="4"></select>
+            <label style="margin-top:6px;"><input type="checkbox" id="grAllSkills" style="width:auto;"> Grant ALL skills leased to me</label>
+          </div>
           <div><label>Clients (Ctrl/Cmd-click for several)</label>
             <select id="grClient" multiple size="4"></select>
             <label style="margin-top:6px;">
@@ -108,11 +111,15 @@ const tabs = {
       || `<option value="">No clients yet</option>`;
     el("grAdd").onclick = async () => {
       try {
-        const ids = [...el("grClient").selectedOptions].map(o => parseInt(o.value));
+        const skillIds = [...el("grSkill").selectedOptions].map(o => parseInt(o.value));
+        const clientIds = [...el("grClient").selectedOptions].map(o => parseInt(o.value));
         const r = await API.post("/api/coach/grants", {
-          skill_id: parseInt(el("grSkill").value),
-          client_ids: ids, all_clients: el("grAll").checked });
-        flash("grNotice", `Skill granted to: ${r.clients.join(", ")}`, true);
+          skill_ids: skillIds, all_skills: el("grAllSkills").checked,
+          client_ids: clientIds, all_clients: el("grAll").checked });
+        let msg = `Granted ${r.skills.join(", ")} to: ${r.clients.join(", ")}.`;
+        if (r.skipped_not_leased && r.skipped_not_leased.length)
+          msg += ` Skipped (not leased to you): ${r.skipped_not_leased.join(", ")}.`;
+        flash("grNotice", msg, true);
         loadGrants();
       } catch (e) { flash("grNotice", e.message); }
     };

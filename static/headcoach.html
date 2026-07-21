@@ -132,10 +132,13 @@ const tabs = {
     el("chatSidebarExtra").innerHTML = "";
     el("main").innerHTML = `
       <div class="card">
-        <h2>Lease a skill to a coach</h2>
+        <h2>Lease skills to coaches</h2>
         <div class="notice" id="asNotice"></div>
         <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
-          <div><label>Skill</label><select id="asSkill"></select></div>
+          <div><label>Skills (Ctrl/Cmd-click for several)</label>
+            <select id="asSkill" multiple size="4"></select>
+            <label style="margin-top:6px;"><input type="checkbox" id="asAllSkills" style="width:auto;"> Lease ALL enabled skills</label>
+          </div>
           <div><label>Coaches (Ctrl/Cmd-click for several)</label>
             <select id="asCoach" multiple size="4"></select>
             <label style="margin-top:6px;"><input type="checkbox" id="asAll" style="width:auto;"> Lease to ALL active coaches</label>
@@ -154,11 +157,13 @@ const tabs = {
     el("asCoach").innerHTML = coaches.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
     el("asAdd").onclick = async () => {
       try {
-        const ids = [...el("asCoach").selectedOptions].map(o => parseInt(o.value));
+        const skillIds = [...el("asSkill").selectedOptions].map(o => parseInt(o.value));
+        const coachIds = [...el("asCoach").selectedOptions].map(o => parseInt(o.value));
         const r = await API.post("/api/admin/assignments", {
-          skill_id: parseInt(el("asSkill").value),
-          coach_ids: ids, all_coaches: el("asAll").checked });
-        flash("asNotice", `Skill leased to: ${r.coaches.join(", ")}`, true);
+          skill_ids: skillIds, all_skills: el("asAllSkills").checked,
+          coach_ids: coachIds, all_coaches: el("asAll").checked });
+        flash("asNotice",
+          `Leased ${r.skills.join(", ")} to: ${r.coaches.join(", ")} (${r.combinations} combination(s)).`, true);
         loadAssignments();
       } catch (e) { flash("asNotice", e.message); }
     };

@@ -54,7 +54,8 @@ class BrandingIn(BaseModel):
 
 
 class GrantIn(BaseModel):
-    skill_id: int
+    skill_ids: list[int] = []
+    all_skills: bool = False
     client_ids: list[int] = []
     all_clients: bool = False
 
@@ -309,9 +310,14 @@ def set_branding(body: BrandingIn,
 @router.post("/grants")
 def grant_skill(body: GrantIn, user: User = Depends(require_coach_or_above),
                 db: Session = Depends(get_db)):
-    skill = db.query(Skill).get(body.skill_id)
-    if not skill:
-        raise HTTPException(404, "Skill not found")
+    """Grant one or several skills to one, several, or all clients — every
+    combination of the two selections gets an active grant."""
+    if body.all_skills:
+        skills = db.query(Skill).filter(Skill.is_enabled == True).all()  # noqa: E712
+    else:
+        skills = db.query(Skill).filter(Skill.id.in_(body.skill_ids)).all()
+    if not skills:
+        raise HTTPException(404, "No matching skills found")
 
     # resolve the client list
     if body.all_clients:
@@ -328,28 +334,39 @@ def grant_skill(body: GrantIn, user: User = Depends(require_coach_or_above),
     if not clients:
         raise HTTPException(404, "No matching clients found")
 
-    # verify the coach lease once (same skill, same coach for all clients)
-    sample = clients[0]
-    coach_id = user.id if user.role == "coach" else sample.coach_id
-    lease = db.query(SkillAssignment).filter(
-        SkillAssignment.skill_id == skill.id,
-        SkillAssignment.coach_id == coach_id,
-        SkillAssignment.is_active == True).first()
-    if not lease:
-        raise HTTPException(403, "This skill is not leased to the client's coach")
-
-    for client in clients:
-        existing = db.query(SkillGrant).filter(
-            SkillGrant.skill_id == skill.id,
-            SkillGrant.client_id == client.id).first()
-        if existing:
-            existing.is_active = True
+    # each client's coach must hold an active lease on each skill being granted
+    granted_skills, skipped = [], []
+    for skill in skills:
+        lease_ok_for_any = False
+        for client in clients:
+            coach_id = user.id if user.role == "coach" else client.coach_id
+            lease = db.query(SkillAssignment).filter(
+                SkillAssignment.skill_id == skill.id,
+                SkillAssignment.coach_id == coach_id,
+                SkillAssignment.is_active == True).first()  # noqa: E712
+            if not lease:
+                continue
+            lease_ok_for_any = True
+            existing = db.query(SkillGrant).filter(
+                SkillGrant.skill_id == skill.id,
+                SkillGrant.client_id == client.id).first()
+            if existing:
+                existing.is_active = True
+            else:
+                db.add(SkillGrant(skill_id=skill.id, client_id=client.id,
+                                  granted_by=user.id))
+        if lease_ok_for_any:
+            granted_skills.append(skill.title)
         else:
-            db.add(SkillGrant(skill_id=skill.id, client_id=client.id,
-                              granted_by=user.id))
+            skipped.append(skill.title)
     db.commit()
-    return {"ok": True, "skill": skill.title,
-            "clients": [c.name for c in clients]}
+
+    if not granted_skills:
+        raise HTTPException(403,
+            "None of the selected skills are leased to the relevant coach(es)")
+    return {"ok": True, "skills": granted_skills,
+            "clients": [c.name for c in clients],
+            "skipped_not_leased": skipped}
 
 
 @router.delete("/grants")

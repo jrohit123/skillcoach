@@ -103,7 +103,8 @@ class UserUpdate(BaseModel):
 
 
 class AssignIn(BaseModel):
-    skill_id: int
+    skill_ids: list[int] = []   # one or several
+    all_skills: bool = False
     coach_ids: list[int] = []   # one, several, or use all_coaches
     all_coaches: bool = False
 
@@ -419,10 +420,15 @@ async def coaches_bulk_upload(file: UploadFile = File(...),
 @router.post("/assignments")
 def assign_skill(body: AssignIn, hc: User = Depends(require_head_coach),
                  db: Session = Depends(get_db)):
-    """Lease a skill to one, several, or all coaches at once."""
-    skill = db.query(Skill).get(body.skill_id)
-    if not skill:
-        raise HTTPException(404, "Skill not found")
+    """Lease one or several skills to one, several, or all coaches — every
+    combination of the two selections gets an active assignment."""
+    if body.all_skills:
+        skills = db.query(Skill).filter(Skill.is_enabled == True).all()  # noqa: E712
+    else:
+        skills = db.query(Skill).filter(Skill.id.in_(body.skill_ids)).all()
+    if not skills:
+        raise HTTPException(404, "No matching skills found")
+
     if body.all_coaches:
         coaches = db.query(User).filter(User.role == "coach",
                                         User.is_active == True).all()  # noqa: E712
@@ -431,18 +437,21 @@ def assign_skill(body: AssignIn, hc: User = Depends(require_head_coach),
                                         User.role == "coach").all()
     if not coaches:
         raise HTTPException(404, "No matching coaches found")
-    for coach in coaches:
-        existing = db.query(SkillAssignment).filter(
-            SkillAssignment.skill_id == skill.id,
-            SkillAssignment.coach_id == coach.id).first()
-        if existing:
-            existing.is_active = True
-        else:
-            db.add(SkillAssignment(skill_id=skill.id, coach_id=coach.id,
-                                   assigned_by=hc.id))
+
+    for skill in skills:
+        for coach in coaches:
+            existing = db.query(SkillAssignment).filter(
+                SkillAssignment.skill_id == skill.id,
+                SkillAssignment.coach_id == coach.id).first()
+            if existing:
+                existing.is_active = True
+            else:
+                db.add(SkillAssignment(skill_id=skill.id, coach_id=coach.id,
+                                       assigned_by=hc.id))
     db.commit()
-    return {"ok": True, "skill": skill.title,
-            "coaches": [c.name for c in coaches]}
+    return {"ok": True, "skills": [s.title for s in skills],
+            "coaches": [c.name for c in coaches],
+            "combinations": len(skills) * len(coaches)}
 
 
 # ---------- Credits ----------
