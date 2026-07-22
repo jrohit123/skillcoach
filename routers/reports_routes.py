@@ -261,9 +261,34 @@ def export_usage(month: Optional[str] = None,
 def download_transcript(conv_id: int, user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
     """Formatted HTML transcript. Assistant messages are Markdown-rendered;
-    superseded (edited-away) turns are shown greyed with a label."""
+    superseded (edited-away) turns are shown greyed with a label.
+    All timestamps are converted to the requesting user's saved timezone
+    (falls back to Asia/Kolkata) — this HTML is generated server-side, so
+    it can't rely on the browser-side JS date formatting used elsewhere."""
     import html as htmlmod
     import markdown as md
+    from zoneinfo import ZoneInfo
+
+    tzname = user.timezone or "Asia/Kolkata"
+    user_tz = None
+    try:
+        user_tz = ZoneInfo(tzname)
+    except Exception:
+        try:
+            tzname, user_tz = "Asia/Kolkata", ZoneInfo("Asia/Kolkata")
+        except Exception:
+            tzname, user_tz = "UTC", None  # tzdata unavailable in this environment — degrade to plain UTC, never crash
+
+    def fmt_local(raw: str) -> str:
+        """raw is a naive UTC datetime string like '2026-07-21 08:30:15.123456'."""
+        try:
+            dt = datetime.fromisoformat(raw.split(".")[0])
+            if user_tz is not None:
+                dt = dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(user_tz)
+                return dt.strftime("%d-%b-%y %H:%M")
+            return dt.strftime("%d-%b-%y %H:%M") + " UTC"
+        except Exception:
+            return raw[:16]  # last-resort fallback if the timestamp can't be parsed at all
 
     t = report_transcript(conv_id, user, db)
 
@@ -277,7 +302,7 @@ def download_transcript(conv_id: int, user: User = Depends(get_current_user),
         label = ("You" if m["role"] == "user" else "Assistant") + \
                 (" · edited away" if m.get("superseded") else "")
         blocks.append(
-            f'<div class="msg {cls}"><div class="who">{label} · {m["at"][:16]}</div>{body}</div>')
+            f'<div class="msg {cls}"><div class="who">{label} · {fmt_local(m["at"])}</div>{body}</div>')
 
     page = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -299,7 +324,7 @@ def download_transcript(conv_id: int, user: User = Depends(get_current_user),
 </style></head><body>
 <h1>{htmlmod.escape(t['title'])}</h1>
 <div class="meta">User: {htmlmod.escape(t['user'])} · Skill: {htmlmod.escape(t['skill'])}
- · Model: {htmlmod.escape(t['model_id'] or '')} · Started (UTC): {t['created_at'][:16]}</div>
+ · Model: {htmlmod.escape(t['model_id'] or '')} · Started: {fmt_local(t['created_at'])} ({tzname})</div>
 {''.join(blocks)}
 </body></html>"""
 
