@@ -177,7 +177,7 @@ async function renderChrome() {
   };
   // coach/client: show the coach's branding in the topbar
   const r = localStorage.getItem("role");
-  if (r === "coach" || r === "client") {
+  if (r === "client") {
     try {
       const b = await API.get("/api/chat/branding");
       if (b.brand_name || b.brand_logo) {

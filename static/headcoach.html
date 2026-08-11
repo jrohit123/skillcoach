@@ -136,11 +136,11 @@ const tabs = {
         <div class="notice" id="asNotice"></div>
         <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0 14px; align-items:end;">
           <div><label>Skills (Ctrl/Cmd-click for several)</label>
-            <select id="asSkill" multiple size="4"></select>
+            <select id="asSkill" multiple size="8" style="resize:vertical; height:200px;"></select>
             <label style="margin-top:6px;"><input type="checkbox" id="asAllSkills" style="width:auto;"> Lease ALL enabled skills</label>
           </div>
           <div><label>Coaches (Ctrl/Cmd-click for several)</label>
-            <select id="asCoach" multiple size="4"></select>
+            <select id="asCoach" multiple size="8" style="resize:vertical; height:200px;"></select>
             <label style="margin-top:6px;"><input type="checkbox" id="asAll" style="width:auto;"> Lease to ALL active coaches</label>
           </div>
           <button class="btn" id="asAdd">Assign</button>
@@ -148,6 +148,17 @@ const tabs = {
       </div>
       <div class="card">
         <h2>Current assignments</h2>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 10px; margin-bottom:12px;">
+          <div><label style="font-size:12px;">Filter Skill</label><input id="asFilterSkill" placeholder="Search skill..."></div>
+          <div><label style="font-size:12px;">Filter Coach</label><input id="asFilterCoach" placeholder="Search coach..."></div>
+          <div><label style="font-size:12px;">Filter Status</label>
+            <select id="asFilterStatus" style="width:100%;">
+              <option value="">All</option>
+              <option value="Active">Active</option>
+              <option value="Revoked">Revoked</option>
+            </select>
+          </div>
+        </div>
         <table><thead><tr><th>Skill</th><th>Coach</th><th>Status</th><th></th></tr></thead>
         <tbody id="asRows"></tbody></table>
       </div>`;
@@ -168,6 +179,12 @@ const tabs = {
       } catch (e) { flash("asNotice", e.message); }
     };
     await loadAssignments();
+    // Setup filter listeners
+    if (el("asFilterSkill")) {
+      el("asFilterSkill").oninput = () => filterAssignments();
+      el("asFilterCoach").oninput = () => filterAssignments();
+      el("asFilterStatus").onchange = () => filterAssignments();
+    }
   },
 
   /* ---------------- Models ---------------- */
@@ -425,16 +442,37 @@ async function toggleUser(id, active) {
   await API.patch(`/api/admin/users/${id}`, { is_active: active }); loadCoaches();
 }
 
+//let allAssignmentsData = [];
+
 async function loadAssignments() {
   const rows = await API.get("/api/admin/assignments");
-  el("asRows").innerHTML = rows.map(a => `
+  allAssignmentsData = rows;  // Store data globally
+  filterAssignments();         // Call filter to display
+}
+
+// Store all assignments data for filtering
+//let allAssignmentsData = [];
+
+function filterAssignments() {
+  const skillFilter = (el("asFilterSkill")?.value || "").toLowerCase();
+  const coachFilter = (el("asFilterCoach")?.value || "").toLowerCase();
+  const statusFilter = el("asFilterStatus")?.value || "";
+  
+  const filtered = allAssignmentsData.filter(a => {
+    const skillMatch = a.skill.toLowerCase().includes(skillFilter);
+    const coachMatch = a.coach.toLowerCase().includes(coachFilter);
+    const statusMatch = statusFilter === "" || (statusFilter === "Active" ? a.is_active : !a.is_active);
+    return skillMatch && coachMatch && statusMatch;
+  });
+  
+  el("asRows").innerHTML = filtered.map(a => `
     <tr>
       <td>${esc(a.skill)}</td><td>${esc(a.coach)}</td>
       <td><span class="pill ${a.is_active ? "on" : "off"}">${a.is_active ? "Active" : "Revoked"}</span></td>
       <td>${a.is_active
         ? `<button class="btn small danger" onclick="revokeAssign(${a.skill_id}, ${a.coach_id})">Revoke</button>`
         : `<button class="btn small ghost" onclick="reassign(${a.skill_id}, ${a.coach_id})">Re-assign</button>`}</td>
-    </tr>`).join("") || `<tr><td colspan="4">No assignments yet.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="4">No assignments match filters.</td></tr>`;
 }
 
 async function loadModels() {
