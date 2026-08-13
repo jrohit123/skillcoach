@@ -16,6 +16,7 @@
       <button data-tab="assignments">🔗 Assign Skills</button>
       <button data-tab="models">🤖 Models</button>
       <button data-tab="reports">📊 Reports</button>
+      <button data-tab="settings">⚙️ Settings</button>
       <button data-tab="chat">💬 Chat</button>
     </div>
     <div id="chatSidebarExtra"></div>
@@ -270,6 +271,36 @@ const tabs = {
     el("chatSidebarExtra").innerHTML = "";
     await Reports.render();
   },
+
+  /* ---------------- Settings ---------------- */
+  settings: async () => {
+  el("chatSidebarExtra").innerHTML = "";
+  const s = await API.get("/api/admin/chat-transcripts-setting");
+  el("main").innerHTML = `
+    <div class="card">
+      <h2>Chat Transcripts Visibility</h2>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:12px;">
+        Toggle this setting to show or hide the "Chat transcripts" button for Head Coach and Coach logins.</p>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input id="ctVisible" type="checkbox" ${s.show_chat_transcripts ? "checked" : ""} 
+            style="width:18px; height:18px; cursor:pointer;">
+          <span>Show Chat Transcripts button</span>
+        </label>
+        <button class="btn" id="ctSave">Save</button>
+      </div>
+      <div class="notice" id="ctNotice"></div>
+    </div>`;
+  el("ctSave").onclick = async () => {
+    try {
+      const r = await API.patch("/api/admin/chat-transcripts-setting", {
+        show_chat_transcripts: el("ctVisible").checked });
+      flash("ctNotice", 
+        `Chat transcripts button is now ${r.show_chat_transcripts ? "visible" : "hidden"}.`, true);
+    } catch (e) { flash("ctNotice", e.message); }
+  };
+},
+
 
   /* ---------------- Chat ---------------- */
   chat: async () => {

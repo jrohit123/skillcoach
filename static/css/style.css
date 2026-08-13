@@ -167,6 +167,11 @@ body.busy, body.busy * { cursor: progress !important; }
 .card { overflow-x: auto; }
 .card table { min-width: 640px; }
 
+/* Compact/flexible tables that size to their content instead of stretching */
+.card table.fit { min-width: 0; width: auto; table-layout: auto; }
+.card table.fit th, .card table.fit td { white-space: nowrap; padding: 6px 8px; }
+.card table.fit td { border-bottom: 1px solid var(--line); }
+
 /* On mobile, make it obvious a wide table can be swiped — default mobile
    scrollbars are invisible until touched, which reads as "cut off". */
 @media (max-width: 640px) {

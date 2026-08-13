@@ -12,7 +12,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from database import (get_db, User, Skill, SkillAssignment, ModelOption,
-                      CreditTransaction, SkillCategory)
+                      CreditTransaction, SkillCategory, PlatformSetting)
 from auth import require_head_coach, hash_password
 from services.quota_service import transfer_credits
 from services.pricing_service import (estimate_usd_for_balance, get_input_ratio,
@@ -63,6 +63,42 @@ def update_pricing_settings(body: PricingSettingIn,
         raise HTTPException(400, "input_ratio must be between 0 and 1")
     set_input_ratio(db, body.input_ratio)
     return {"ok": True, "input_ratio": body.input_ratio}
+
+# ---------- Chat transcripts visibility setting ----------
+
+class ChatTranscriptSettingIn(BaseModel):
+    show_chat_transcripts: bool
+
+
+@router.get("/chat-transcripts-setting")
+def get_chat_transcripts_setting(hc: User = Depends(require_head_coach),
+                                 db: Session = Depends(get_db)):
+    """Get the current visibility setting for chat transcripts button."""
+    setting = db.query(PlatformSetting).filter(
+        PlatformSetting.key == "show_chat_transcripts").first()
+    # Default to True (visible) if not set
+    is_visible = setting.value == "true" if setting else True
+    return {"show_chat_transcripts": is_visible}
+
+
+@router.patch("/chat-transcripts-setting")
+def update_chat_transcripts_setting(body: ChatTranscriptSettingIn,
+                                    hc: User = Depends(require_head_coach),
+                                    db: Session = Depends(get_db)):
+    """Update the visibility setting for chat transcripts button."""
+    setting = db.query(PlatformSetting).filter(
+        PlatformSetting.key == "show_chat_transcripts").first()
+    
+    value = "true" if body.show_chat_transcripts else "false"
+    
+    if setting:
+        setting.value = value
+    else:
+        setting = PlatformSetting(key="show_chat_transcripts", value=value)
+        db.add(setting)
+    
+    db.commit()
+    return {"ok": True, "show_chat_transcripts": body.show_chat_transcripts}
 
 
 # ---------- Schemas ----------

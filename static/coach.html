@@ -100,6 +100,17 @@ const tabs = {
       </div>
       <div class="card">
         <h2>Current grants</h2>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 10px; margin-bottom:12px;">
+          <div><label style="font-size:12px;">Filter Skill</label><input id="grFilterSkill" placeholder="Search skill..."></div>
+          <div><label style="font-size:12px;">Filter Client</label><input id="grFilterClient" placeholder="Search client..."></div>
+          <div><label style="font-size:12px;">Filter Status</label>
+            <select id="grFilterStatus" style="width:100%;">
+              <option value="">All</option>
+              <option value="Active">Active</option>
+              <option value="Revoked">Revoked</option>
+            </select>
+          </div>
+        </div>
         <table><thead><tr><th>Skill</th><th>Client</th><th>Status</th><th></th></tr></thead>
         <tbody id="grRows"></tbody></table>
       </div>`;
@@ -124,6 +135,12 @@ const tabs = {
       } catch (e) { flash("grNotice", e.message); }
     };
     await loadGrants();
+    // Setup filter listeners
+    if (el("grFilterSkill")) {
+      el("grFilterSkill").oninput = () => filterGrants();
+      el("grFilterClient").oninput = () => filterGrants();
+      el("grFilterStatus").onchange = () => filterGrants();
+    }
   },
 };
 
@@ -146,17 +163,37 @@ async function loadClients() {
     </tr>`).join("") || `<tr><td colspan="7">No clients yet — add your first one above.</td></tr>`;
 }
 
+let allGrantsData = [];
+
 async function loadGrants() {
   const rows = await API.get("/api/coach/grants");
-  el("grRows").innerHTML = rows.map(g => `
+  allGrantsData = rows;  // Store data globally
+  filterGrants();        // Call filter to display
+}
+
+function filterGrants() {
+  const skillFilter = (el("grFilterSkill")?.value || "").toLowerCase().trim();
+  const clientFilter = (el("grFilterClient")?.value || "").toLowerCase().trim();
+  const statusFilter = (el("grFilterStatus")?.value || "").trim();
+  
+  const filtered = allGrantsData.filter(g => {
+    // Empty filter means match all
+    const skillMatch = skillFilter === "" || g.skill.toLowerCase().includes(skillFilter);
+    const clientMatch = clientFilter === "" || g.client.toLowerCase().includes(clientFilter);
+    const statusMatch = statusFilter === "" || (statusFilter === "Active" ? g.is_active : !g.is_active);
+    return skillMatch && clientMatch && statusMatch;
+  });
+  
+  el("grRows").innerHTML = filtered.map(g => `
     <tr>
       <td>${esc(g.skill)}</td><td>${esc(g.client)}</td>
       <td><span class="pill ${g.is_active ? "on" : "off"}">${g.is_active ? "Active" : "Revoked"}</span></td>
       <td>${g.is_active
         ? `<button class="btn small danger" onclick="revokeGrant(${g.skill_id}, ${g.client_id})">Revoke</button>`
         : `<button class="btn small ghost" onclick="regrant(${g.skill_id}, ${g.client_id})">Re-grant</button>`}</td>
-    </tr>`).join("") || `<tr><td colspan="4">No grants yet.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="4">No grants match filters.</td></tr>`;
 }
+
 
 async function extendClient(id) {
   const d = prompt("Extend validity by how many days?", "365");

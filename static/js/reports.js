@@ -4,22 +4,42 @@ const Reports = {
   state: { rows: [], sortKey: null, sortDir: -1, page: 1, pageSize: 20, view: "T" },
 
   async render() {
-    el("main").innerHTML = `
-      <div class="card">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn small" id="rTabT">Chat transcripts</button>
-          <button class="btn small ghost" id="rTabC">Credit ledger</button>
-          <button class="btn small ghost" id="rTabU">Usage</button>
-        </div>
+  // Check if chat transcripts should be visible
+  let showTranscripts = true;
+  try {
+    const setting = await API.get("/api/coach/chat-transcripts-setting");
+    showTranscripts = setting.show_chat_transcripts;
+  } catch (e) {
+    // If setting not found, default to true (show)
+    showTranscripts = true;
+  }
+  
+  el("main").innerHTML = `
+    <div class="card">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${showTranscripts ? `<button class="btn small" id="rTabT">Chat transcripts</button>` : ""}
+        <button class="btn small ghost" id="rTabC">Credit ledger</button>
+        <button class="btn small ghost" id="rTabU">Usage</button>
       </div>
-      <div id="rBody"></div>`;
-    ["T", "C", "U"].forEach(k => el("rTab" + k).onclick = () => Reports.switch(k));
-    Reports.switch("T");
-  },
+    </div>
+    <div id="rBody"></div>`;
+  const tabs_to_setup = [];
+  if (showTranscripts) tabs_to_setup.push("T");
+  tabs_to_setup.push("C", "U");
+  tabs_to_setup.forEach(k => {
+    const btn = el("rTab" + k);
+    if (btn) btn.onclick = () => Reports.switch(k);
+  });
+  // Default to first available tab (transcripts if visible, else credits)
+  const defaultTab = showTranscripts ? "T" : "C";
+  Reports.switch(defaultTab);
+},
 
   switch(which) {
-    ["T", "C", "U"].forEach(k =>
-      el("rTab" + k).className = "btn small" + (k === which ? "" : " ghost"));
+  ["T", "C", "U"].forEach(k => {
+    const btn = el("rTab" + k);
+    if (btn) btn.className = "btn small" + (k === which ? "" : " ghost");
+  });
     Reports.state = { rows: [], sortKey: null, sortDir: -1, page: 1,
                       pageSize: Reports.state.pageSize, view: which };
     ({ T: Reports.transcripts, C: Reports.credits, U: Reports.usage })[which]();

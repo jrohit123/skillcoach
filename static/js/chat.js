@@ -69,6 +69,13 @@ const Chat = {
 
   async loadUsage() {
     try {
+      // If the logged-in user is a client, hide the usage/credit-info section
+      // (the right-panel should not show "Credit balance" for clients).
+      if (localStorage.getItem("role") === "client") {
+        const ui = el("usageInfo");
+        if (ui) ui.style.display = "none";
+        return;
+      }
       const u = await API.get("/api/chat/usage");
       const usd = (u.estimated_usd != null)
         ? ` <span title="Approximate value — assumes the costliest active AI model, since actual cost depends on which model you pick per chat.">(≈ $${u.estimated_usd.toFixed(2)} USD)</span>`
@@ -244,11 +251,11 @@ const CHAT_PANEL_HTML = `
   <div class="card">
     <div style="display:flex; gap:10px; align-items:end; flex-wrap:wrap;">
       <div style="flex:2; min-width:180px;">
-        <label>Skill</label>
+        <label>Coaching Topic</label>
         <select id="skillSelect"></select>
       </div>
       <div style="flex:1; min-width:160px;">
-        <label>Model</label>
+        <label>Claude Model</label>
         <select id="modelSelect"></select>
       </div>
       <button class="btn" id="newConvBtn">New conversation</button>

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from database import get_db, User, Skill, SkillAssignment, SkillGrant
+from database import get_db, User, Skill, SkillAssignment, SkillGrant, PlatformSetting
 from auth import require_coach_or_above, hash_password
 from services.quota_service import transfer_credits
 from services.pricing_service import estimate_usd_for_balance
@@ -396,3 +396,15 @@ def list_grants(user: User = Depends(require_coach_or_above),
     return [{"id": g.id, "skill_id": s.id, "skill": s.title,
              "client_id": u.id, "client": u.name, "is_active": g.is_active}
             for g, s, u in rows]
+
+# ---------- Chat transcripts visibility setting (public, accessible to coaches & clients) ----------
+
+@router.get("/chat-transcripts-setting")
+def get_chat_transcripts_setting(user: User = Depends(require_coach_or_above),
+                                 db: Session = Depends(get_db)):
+    """Get the current visibility setting for chat transcripts button (public endpoint)."""
+    setting = db.query(PlatformSetting).filter(
+        PlatformSetting.key == "show_chat_transcripts").first()
+    # Default to True (visible) if not set
+    is_visible = setting.value == "true" if setting else True
+    return {"show_chat_transcripts": is_visible}

@@ -1,18 +1,17 @@
 DONE:
 Head Coach: sanjay@phenomindia.com
 Branding for the Head Coach on the Coach's login and Coach's branding on the Client's login
-In HEADCOACH: Make the "Lease skills to coaches" list boxes of dynamic length along with the Skill Category added. Also add filters
+Keep the chat transcripts switchable (on/off toggle)
+Make the "Lease skills to coaches" list boxes of dynamic length along with the Skill Category added. Also add filters
+Remove "My credits" from Client-view
+pricing.html to show only to the Coach (remove from Client-View)
 
 
 
 
 IN PROCESS:
-In COACH: Make the "Lease skills to coaches" list boxes of dynamic length along with the Skill Category added. Also add filters
-Keep the chat transcripts switchable (on/off toggle)
 
 
 
 TO DO:
 CSV link on the Excel sheet
-pricing.html to show only to the Coach (remove from Client-View)
-Remove "My credits" from Client-view
